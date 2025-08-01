@@ -5,7 +5,12 @@ def mirror_weights(length):
     """
     Create an array of weights that increases then decreases linearly at the midpoint of an array.
     
-    length: number representing the length of the array.
+    Input: 
+        length: number representing the length of the array.
+       
+    Output: 
+        weights: List representing weights
+     
     Ex:
         length=6 => [1, 2, 3, 3, 2, 1]
         length=7 => [1, 2, 3, 4, 3, 2, 1]
@@ -20,15 +25,20 @@ def mirror_weights(length):
         # length is odd: midpoint is the exact midpoint
         increasing = list(range(1, midpoint + 2)) # 1, 2, ..., midpoint
         decreasing = list(range(midpoint, 0, -1)) # midpoint - 1, ..., 1
-        
-    return increasing + decreasing
-
+    
+    weights = increasing + decreasing
+    
+    return weights
 
 def generate_layout(shape=(3, 2, 2, 2, 3)):
     """
     Create a layout tensor of ones with the given 5D shape.
     
-    shape: 5D shape representing the number of rooms, the shape of each room, and the shape of each table.
+    Input:
+        shape: 5D shape representing the number of rooms, the shape of each room, and the shape of each table.
+        
+    Output:
+        1's tensor of shape shape.
     """
     return np.ones(shape, dtype=int)
 
@@ -37,10 +47,18 @@ def generate_attribute_layout(layout, brightness_range=(80, 20), whiteboard_rang
     Returns a tensor of shape (rooms, tr, tc, sr, sc, 3) with attributes [brightness, noise, whiteboards] for each seat.
 
     Brightness: total_rows = table_rows * seat_rows => linear ramp.
-
     Noise: base = row_weight * col_weight where row_weight and col_weight are mirrored ramps => scaled max = 100 => add a Gaussian.
-
     Whiteboards: random integer in whiteboard_range per seat.
+    
+    Input:
+        layout: 5D tensor describing the layout of the library.
+        brightness_range: range of integers for the brightness.
+        whiteeboard_range: range of integers for the number of whiteboards.
+        brightness_sd: standard deviation for the brightness level, int.
+        noise_sd: standard deviation for the noise level, int.
+        
+    Ouutput:
+        attributes: 6D tensor of seats and their attributes.
     """ 
     # Unpack and set dimension variables
     rooms, tr, tc, sr, sc = layout.shape
@@ -88,6 +106,9 @@ def generate_attribute_layout(layout, brightness_range=(80, 20), whiteboard_rang
 def display_attribute_layout(attributes):
     """
     Prints each room's tables with seat attributes: (brightness, noise, whiteboards) for each seat.
+    
+    Input: 
+        Attributes: 5D 1's tensor.
     """
     rooms, tr, tc, sr, sc, _ = attributes.shape
 
@@ -107,13 +128,20 @@ def display_attribute_layout(attributes):
                 print('-' * (12 * tc * sc + tc * (sc - 1) + (tc - 1) * 3))
         print()
 
-def attributes_to_csv(attributes, path="data/seats.csv"):
+def attributes_to_csv(seats, path="data/seats.csv"):
     """
     Turn the attrs tensor into a flat DataFrame with columns:
         Seat_ID, Table_ID, Room_ID, Brightness, Whiteboards, Noise, Seat_Available, Table_Available, Room_Available
     and save to CSV.
+    
+    Input:
+        seats: 6D tensor of seats and their attributes (Brightness, Whiteboards, and Noise).
+        path: CSV file path.
+        
+    Output: 
+        df: dataframe containing the seats table.
     """
-    rooms, tr, tc, sr, sc, _ = attributes.shape
+    rooms, tr, tc, sr, sc, _ = seats.shape
     rows = []
     seat_id = 1
     table_counter = 1
@@ -151,15 +179,106 @@ def attributes_to_csv(attributes, path="data/seats.csv"):
         "Table_Available", 
         "Room_Available"
     ])
-    df.to_csv(path, index=False)
-    print(f"Wrote {len(df)} seats to {path}")
+    
+    df.to_csv(path, index=False)    
+    
+    return df
 
+def generate_students(num_groups,
+                      group_size_range=(5, 15),
+                      brightness_mean=50,
+                      brightness_sd=15,
+                      noise_mean=50,
+                      noise_sd=15,
+                      wb_range=(0, 1),
+                      flexibility_range=(1, 5),
+                      ):
+    """
+    Generates a students DataFrame with columns:
+        Student_ID, Group_ID, Brightness, Noise, Whiteboards, Flexibility
+    
+    Attributes:
+        Brightness: Normal(mean, sd), clipped to [0,100], int.
+        Noise: Normal(mean, sd), clipped to [0,100], int. 
+        Whiteboards: random integer in whiteboards_range per student.
+        Flexibility: random integer in flexibility_range per student.
+
+    Input:
+        num_groups: number of groups
+        group_size_range: tuple (min_size, max_size) for each group's size, uniformly distributed.
+
+    Output: 
+        df: dataframe containing the students table.
+    """
+    students = []
+    student_id = 1
+    sizes = np.random.randint(group_size_range[0],
+                              group_size_range[1] + 1,
+                              size=num_groups)
+
+    for group_id, group_size in enumerate(sizes, start=1):
+        for _ in range(group_size):
+            brightness = int(np.clip(np.random.normal(brightness_mean, brightness_sd), 0, 100))
+            whiteboards = np.random.randint(wb_range[0], wb_range[1] + 1)
+            noise = int(np.clip(np.random.normal(noise_mean, noise_sd), 0, 100))
+            flex = np.random.randint(flexibility_range[0], flexibility_range[1] + 1)
+            students.append({
+                "Student_ID":   f"S{student_id:03d}",
+                "Group_ID":     group_id,
+                "Brightness":   brightness,
+                "Noise":        noise,
+                "Whiteboards":  whiteboards,
+                "Flexibility":  flex
+            })
+            student_id += 1
+
+    df = pd.DataFrame(students, columns=[
+        "Student_ID", 
+        "Group_ID",
+        "Brightness", 
+        "Noise",
+        "Whiteboards", 
+        "Flexibility"
+    ])
+    
+    return df
+
+def students_to_csv(students, path="data/students.csv"):
+    """
+    Save the students DataFrame to CSV with columns:
+        Student_ID, Group_ID, Brightness, Noise, Whiteboards, Flexibility
+    """
+    cols = [
+        "Student_ID", 
+        "Group_ID",
+        "Brightness", 
+        "Noise",
+        "Whiteboards", 
+        "Flexibility"
+    ]
+    students.to_csv(path, columns=cols, index=False)
+    print(f"Wrote {len(students)} students to {path}")
+    
 if __name__ == "__main__":
     layout = generate_layout((3, 2, 2, 2, 3))
-    attrs = generate_attribute_layout(layout,
-                                brightness_range=(80, 20),
-                                whiteboard_range=(0, 1),
-                                brightness_sd=3,
-                                noise_sd=10)
+    attrs = generate_attribute_layout(
+        layout,
+        brightness_range=(80, 20),
+        whiteboard_range=(0, 1),
+        brightness_sd=3,
+        noise_sd=10
+    )
     display_attribute_layout(attrs)
     attributes_to_csv(attrs)
+    
+    df_students = generate_students(
+        num_groups=20,
+        brightness_mean=60,
+        brightness_sd=20,
+        noise_mean=40,
+        noise_sd=10,
+        wb_range=(0,1),
+        flexibility_range=(1,5)
+    )
+    print(df_students.head())
+    students_to_csv(df_students)
