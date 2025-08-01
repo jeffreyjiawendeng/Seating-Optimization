@@ -116,15 +116,17 @@ def attributes_to_csv(attributes, path="data/seats.csv"):
     rooms, tr, tc, sr, sc, _ = attributes.shape
     rows = []
     seat_id = 1
+    table_counter = 1
 
     for room in range(rooms):
-        room_id = f"R{room+1}"
+        room_id = room + 1
         for tr_i in range(tr):
             for tc_i in range(tc):
-                table_id = f"{room_id}_T{tr_i+1}_{tc_i+1}"
+                table_id = table_counter
+                table_counter += 1
                 for sr_i in range(sr):
                     for sc_i in range(sc):
-                        b, n, wb = attributes[room, tr_i, tc_i, sr_i, sc_i]
+                        b, n, wb = attrs[room, tr_i, tc_i, sr_i, sc_i]
                         rows.append({
                             "Seat_ID":         seat_id,
                             "Table_ID":        table_id,
