@@ -83,7 +83,8 @@ def greedy_seat_selection(group_size, brightness_threshold, table_stats, adjacen
     # Step 1: Find candidate tables C
     C = []
     for table_id, stats in table_stats.items():
-        if stats['avail_cnt'] >= group_size and stats['avg_bright'] >= brightness_threshold:
+        # if stats['avail_cnt'] >= group_size and stats['avg_bright'] >= brightness_threshold:
+        if stats['avail_cnt'] > 0 and stats['avg_bright'] >= brightness_threshold:   
             C.append(table_id)
     
     # Step 2: If no candidates, return empty
@@ -112,6 +113,7 @@ def greedy_seat_selection(group_size, brightness_threshold, table_stats, adjacen
     # Step 10-17: Use heap-based expansion for multiple tables
     P = []  # Selected seats
     visited_tables = set()
+    # selected_ids = set() # NEW — track seats picked so far
     
     # Initialize heap with best table
     heap = [(calculate_score(best_table), best_table)]
@@ -168,75 +170,89 @@ def demo_algorithm():
     successful_placements = 0
     failed_placements = 0
     
+    import random
     g = 100
-    # Process first 5 groups
     for group_id in range(1, g+1):
         print(f"\n{'='*50}")
         print(f"PROCESSING GROUP {group_id}")
         print(f"{'='*50}")
-        
+
         # Get current group
         current_group = students_df[students_df['Group_ID'] == group_id]
         if len(current_group) == 0:
             print(f"No students found in Group {group_id}")
             continue
-            
+
         group_size = len(current_group)
         brightness_threshold = current_group['Brightness'].min()
-        
+
+        # Randomly choose between Q1 and Q2 for this group
+        query_type = random.choice(['Q1', 'Q2'])
+        if query_type == 'Q1':
+            # Q1: minimize AVG(noise), w1=1.0, w2=0.0
+            w1 = 1.0
+            w2 = 0.0
+            objective_str = "Minimize AVG(noise)"
+        else:
+            # Q2: minimize AVG(noise) - 0.3*AVG(brightness), w1=1.0, w2=0.3
+            w1 = 1.0
+            w2 = 0.3
+            objective_str = "Minimize (AVG(noise) - 0.3*AVG(brightness))"
+
         print(f"Group {group_id} requirements:")
         print(f"- Group size: {group_size}")
         print(f"- Brightness threshold: {brightness_threshold}")
-        
+        print(f"- Query type: {query_type} ({objective_str})")
+
         # Create fresh table statistics with current seat availability
         table_stats = create_table_stats(seats_df)
         adjacency_graph = create_adjacency_graph(table_stats)
-        
+
         # Show available seats before placement
         total_available = seats_df['Seat_Available'].sum()
         print(f"- Available seats: {total_available}")
-        
+
         # Run greedy algorithm
         result = greedy_seat_selection(
             group_size=group_size,
             brightness_threshold=brightness_threshold,
             table_stats=table_stats,
             adjacency_graph=adjacency_graph,
-            w1=1.0,  # Weight for noise (higher noise = higher score = worse)
-            w2=1.0   # Weight for brightness (higher brightness = lower score = better)
+            w1=w1,  # Weight for noise
+            w2=w2   # Weight for brightness
         )
-        
+
         if result:
             successful_placements += 1
             print(f"\n✓ Successfully placed Group {group_id}!")
-            
+
             # Show seat assignments
             tables_used = set()
             for seat in result:
                 tables_used.add(seat['Table_ID'])
                 print(f"  - Seat {seat['Seat_ID']} (Table {seat['Table_ID']}, Room {seat['Room_ID']}): "
                       f"Brightness={seat['Brightness']}, Noise={seat['Noise']}")
-            
+
             print(f"  - Tables used: {sorted(tables_used)}")
-            
+
             # Calculate group satisfaction
             avg_brightness = np.mean([seat['Brightness'] for seat in result])
             avg_noise = np.mean([seat['Noise'] for seat in result])
             print(f"  - Average brightness: {avg_brightness:.1f}")
             print(f"  - Average noise: {avg_noise:.1f}")
-            
+
             # UPDATE SEAT AVAILABILITY - Mark assigned seats as unavailable
             for seat in result:
                 seat_mask = (seats_df['Seat_ID'] == seat['Seat_ID'])
                 seats_df.loc[seat_mask, 'Seat_Available'] = False
-            
+
             print(f"  - Marked {len(result)} seats as unavailable")
-            
+
         else:
             failed_placements += 1
             print(f"\n✗ Failed to place Group {group_id}")
             print(f"  - No feasible seat assignment found")
-            
+
         # Show remaining capacity
         remaining_available = seats_df['Seat_Available'].sum()
         print(f"  - Remaining available seats: {remaining_available}")
