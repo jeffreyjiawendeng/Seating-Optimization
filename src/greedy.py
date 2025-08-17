@@ -7,113 +7,132 @@ import time
 
 def load_data():
     """Load seats and students data from CSV files."""
-    seats_df = pd.read_csv("src/seats.csv")
-    students_df = pd.read_csv("src/students.csv")
+    seats_df = pd.read_csv("seats.csv")
+    students_df = pd.read_csv("students.csv")
     return seats_df, students_df
 
-def create_table_stats(seats_df):
+def load_optimized_data():
+    """Load pre-computed optimized data structures."""
+    import os
+    # Get the directory of this script
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    # Go up one level to project root, then into data
+    data_dir = os.path.join(os.path.dirname(script_dir), 'data')
+    
+    seats_df = pd.read_csv("seats.csv")
+    students_df = pd.read_csv("students.csv")
+    table_stats_df = pd.read_csv(os.path.join(data_dir, "table_stats.csv"))
+    adjacency_df = pd.read_csv(os.path.join(data_dir, "adjacency_graph.csv"))
+    return seats_df, students_df, table_stats_df, adjacency_df
+
+def create_table_stats_from_precomputed(seats_df, table_stats_df):
     """
-    Create table statistics: avail_cnt, avg_bright, avg_noise.
+    Create table statistics from pre-computed data with current seat availability.
     
     Returns:
-        table_stats: dict with table_id as key and stats as value
+        table_stats: dict with table_id as key and updated stats as value
     """
     table_stats = {}
     
-    # Group by table to calculate statistics
+    # Create a lookup for current seat availability by table
+    current_availability = {}
     for table_id, group in seats_df.groupby('Table_ID'):
-        available_seats = group[group['Seat_Available'] == True] # filter where seat availability is true
-        avail_cnt = len(available_seats)
+        current_availability[table_id] = group[group['Seat_Available'] == True]
+    
+    # Use pre-computed stats but update availability counts
+    for _, row in table_stats_df.iterrows():
+        table_id = row['Table_ID']
+        current_available = current_availability.get(table_id, pd.DataFrame())
+        current_avail_cnt = len(current_available)
         
-        if avail_cnt > 0:
-            avg_bright = available_seats['Brightness'].mean()
-            avg_noise = available_seats['Noise'].mean()
+        # Recalculate averages based on current availability
+        if current_avail_cnt > 0:
+            avg_bright = current_available['Brightness'].mean()
+            avg_noise = current_available['Noise'].mean()
         else:
             avg_bright = 0
             avg_noise = 0
             
         table_stats[table_id] = {
-            'avail_cnt': avail_cnt,
+            'avail_cnt': current_avail_cnt,
             'avg_bright': avg_bright,
             'avg_noise': avg_noise,
-            'room_id': group.iloc[0]['Room_ID'], # counts off using room id
-            'seats': group.to_dict('records')
+            'room_id': row['Room_ID'],
+            'seats': current_available.to_dict('records') if current_avail_cnt > 0 else []
         }
     
     return table_stats
 
-def create_adjacency_graph(table_stats):
+def create_adjacency_graph_from_precomputed(adjacency_df):
     """
-    Create adjacency graph G where tables in the same room are connected.
+    Create adjacency graph from pre-computed adjacency relationships.
+    Since we only store each pair once, we need to create bidirectional connections.
     
     Returns:
         adjacency_graph: dict of sets representing table connections
     """
     adjacency_graph = defaultdict(set)
     
-    # Group tables by room
-    room_tables = defaultdict(list)
-    for table_id, stats in table_stats.items():
-        room_tables[stats['room_id']].append(table_id)
+    for _, row in adjacency_df.iterrows():
+        table1 = row['Table_ID']
+        table2 = row['Adjacent_Table_ID']
+        # Add both directions since we only stored each pair once
+        adjacency_graph[table1].add(table2)
+        adjacency_graph[table2].add(table1)
     
-    # Connect all tables within the same room
-    for room_id, tables in room_tables.items():
-        for i, table1 in enumerate(tables):
-            for j, table2 in enumerate(tables):
-                if i != j:
-                    adjacency_graph[table1].add(table2)
+    return adjacency_graph
     
     return adjacency_graph
 
 def greedy_seat_selection(group_size, brightness_threshold, table_stats, adjacency_graph, w1=1.0, w2=1.0):
     """
-    Greedy Table-First Seat Selection Algorithm
+    Greedy algorithm for seat selection with consistent constraint validation.
     
     Args:
-        group_size (int): Size of the group (m)
-        brightness_threshold (int): Minimum brightness threshold (B_min)
+        group_size (int): Number of seats needed for the group (N)
+        brightness_threshold (float): Minimum average brightness threshold (B_min)
         table_stats (dict): Table statistics with avail_cnt, avg_bright, avg_noise
-        adjacency_graph (dict): Adjacency graph G
-        w1, w2 (float): Weights for scoring function (noise and brightness)
-        
+        adjacency_graph (dict): Adjacency relationships between tables
+        w1 (float): Weight for noise in objective function
+        w2 (float): Weight for brightness in objective function
+    
     Returns:
-        list: Seat set P for the group, or empty list if infeasible
+        list: Selected seats (dictionaries) or empty list if infeasible
     """
-    
-    # Step 1: Find candidate tables C
-    C = []
-    for table_id, stats in table_stats.items():
-        # if stats['avail_cnt'] >= group_size and stats['avg_bright'] >= brightness_threshold:
-        if stats['avail_cnt'] > 0 and stats['avg_bright'] >= brightness_threshold:   
-            C.append(table_id)
-    
-    # Step 2: If no candidates, return empty
-    if not C:
-        return []
-    
-    # Step 3-6: Score tables and find best one
     def calculate_score(table_id):
+        """Calculate scoring function for table priority."""
         stats = table_stats[table_id]
-        # Score based only on noise and brightness (remove distance component)
+        # Use same scoring as before: lower is better
         score = w1 * stats['avg_noise'] - w2 * stats['avg_bright']
         return score
     
-    # Find table with minimum score
-    best_table = min(C, key=calculate_score)
-    best_stats = table_stats[best_table]
+    # Step 1-9: Find best starting table (removed brightness constraint pre-filtering)
+    # Now consider all tables with available seats, constraint will be validated at the end
+    valid_tables = [table_id for table_id, stats in table_stats.items() 
+                   if stats['avail_cnt'] > 0]  # Only need available seats
     
-    # Step 7-9: If best table has enough seats, pick quietest seats
-    if best_stats['avail_cnt'] >= group_size:
-        available_seats = [seat for seat in best_stats['seats'] if seat['Seat_Available']]
-        # Sort by noise (ascending) to pick quietest seats
+    if not valid_tables:
+        return []
+    
+    # Pick table with best score
+    best_table = min(valid_tables, key=calculate_score)
+    
+    # Quick check: if one table has enough seats, use it
+    if table_stats[best_table]['avail_cnt'] >= group_size:
+        available_seats = [seat for seat in table_stats[best_table]['seats'] if seat['Seat_Available']]
+        # Sort by noise to get quietest seats
         available_seats.sort(key=lambda x: x['Noise'])
         selected_seats = available_seats[:group_size]
-        return selected_seats
+        
+        # Validate brightness constraint: sum(brightness) >= brightness_threshold * group_size
+        total_brightness = sum(seat['Brightness'] for seat in selected_seats)
+        if total_brightness >= brightness_threshold * group_size:
+            return selected_seats
+        # If constraint fails, continue with multi-table approach
     
     # Step 10-17: Use heap-based expansion for multiple tables
     P = []  # Selected seats
     visited_tables = set()
-    # selected_ids = set() # NEW — track seats picked so far
     
     # Initialize heap with best table
     heap = [(calculate_score(best_table), best_table)]
@@ -144,11 +163,16 @@ def greedy_seat_selection(group_size, brightness_threshold, table_stats, adjacen
                 if neighbor_stats['avail_cnt'] > 0:  # Only add tables with available seats
                     heapq.heappush(heap, (calculate_score(neighbor_table), neighbor_table))
     
-    # Step 18-22: Return result
+    # Step 18-22: Validate brightness constraint and return result
     if len(P) == group_size:
-        return P
+        # CRITICAL: Use same constraint as ILP - sum(brightness) >= brightness_threshold * group_size
+        total_brightness = sum(seat['Brightness'] for seat in P)
+        if total_brightness >= brightness_threshold * group_size:
+            return P
+        else:
+            return []  # Constraint violation
     else:
-        return []  # Infeasible
+        return []  # Infeasible size
 
 def pick_quietest_seats(table_stats, table_id, num_seats):
     """
@@ -204,9 +228,10 @@ def demo_algorithm():
         print(f"- Brightness threshold: {brightness_threshold}")
         print(f"- Query type: {query_type} ({objective_str})")
 
-        # Create fresh table statistics with current seat availability
-        table_stats = create_table_stats(seats_df)
-        adjacency_graph = create_adjacency_graph(table_stats)
+        # Load pre-computed data and update with current availability
+        _, _, table_stats_df, adjacency_df = load_optimized_data()
+        table_stats = create_table_stats_from_precomputed(seats_df, table_stats_df)
+        adjacency_graph = create_adjacency_graph_from_precomputed(adjacency_df)
 
         # Show available seats before placement
         total_available = seats_df['Seat_Available'].sum()
@@ -274,8 +299,9 @@ def demo_algorithm():
     print(f"Available seats: {seats_df['Seat_Available'].sum()}")
     print(f"Utilization rate: {occupied_seats/total_seats*100:.1f}%")
     
-    # Show table utilization statistics
-    final_table_stats = create_table_stats(seats_df)
+    # Show table utilization statistics using pre-computed data
+    _, _, table_stats_df, _ = load_optimized_data()
+    final_table_stats = create_table_stats_from_precomputed(seats_df, table_stats_df)
     occupied_tables = sum(1 for stats in final_table_stats.values() if stats['avail_cnt'] < 10)  # Assuming 10 seats per table
     print(f"Tables with occupied seats: {occupied_tables}/{len(final_table_stats)}")
 

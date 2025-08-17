@@ -82,8 +82,8 @@ def solve_ilp(
 
 def load_seat_data():
     """Load and prepare seat data for ILP."""
-    seats_df = pd.read_csv("src/seats.csv")
-    students_df = pd.read_csv("src/students.csv")
+    seats_df = pd.read_csv("seats.csv")
+    students_df = pd.read_csv("students.csv")
     
     # Filter only available seats
     available_seats = seats_df[seats_df['Seat_Available'] == True].copy()

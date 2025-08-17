@@ -307,128 +307,134 @@ def run_comprehensive_experiments():
     
     return results
 
-def generate_simplified_plots(results: Dict, graphs_dir: str):
-    """Generate simplified, explainable plots focusing on key metrics."""
+def generate_comprehensive_plots(results: Dict, graphs_dir: str):
+    """Generate comprehensive visualization plots."""
     
-    # Create two main plots as specified:
-    # 1. Objective Value vs Number of Seats
-    # 2. Latency/Response Time vs Number of Seats
-    
+    # Plot 1: Performance vs Size for each query type
     for query_type in ['Q1', 'Q2']:
-        print(f"Generating simplified plots for {query_type}...")
+        fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(16, 12))
+        fig.suptitle(f'{query_type} Algorithm Performance Analysis', fontsize=16, fontweight='bold')
         
-        # Extract data for plotting
-        greedy_data = results[query_type]['greedy']
-        ilp_data = results[query_type]['ilp']
+        colors = {'greedy': '#2E86AB', 'ilp': '#F24236'}
         
-        if not (greedy_data['sizes'] and ilp_data['sizes']):
-            print(f"  Warning: No data available for {query_type}")
-            continue
+        # Execution Time vs Size
+        for algorithm in ['greedy', 'ilp']:
+            if results[query_type][algorithm]['sizes']:
+                ax1.plot(results[query_type][algorithm]['sizes'], 
+                        results[query_type][algorithm]['avg_times'],
+                        marker='o', linewidth=2, markersize=8,
+                        color=colors[algorithm], label=algorithm.upper())
         
-        # Create figure with 2 subplots side by side
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
-        fig.suptitle(f'{query_type} Query: Algorithm Performance Comparison', fontsize=14, fontweight='bold')
-        
-        # Plot 1: Objective Value vs Number of Seats
-        # Greedy line in blue
-        valid_greedy_objs = [obj if obj != float('inf') else None for obj in greedy_data['avg_objectives']]
-        ax1.plot(greedy_data['sizes'], valid_greedy_objs, 
-                color='blue', marker='o', linewidth=2, markersize=6, label='Greedy')
-        
-        # Naive ILP line in orange
-        valid_ilp_objs = [obj if obj != float('inf') else None for obj in ilp_data['avg_objectives']]
-        ax1.plot(ilp_data['sizes'], valid_ilp_objs,
-                color='orange', marker='s', linewidth=2, markersize=6, label='Naive ILP')
-        
-        ax1.set_xlabel('Number of Seats', fontsize=12)
-        ax1.set_ylabel('Objective Value', fontsize=12)
-        ax1.set_title('Objective Value vs Number of Seats', fontweight='bold')
-        ax1.legend(fontsize=11)
+        ax1.set_title('Average Execution Time vs Dataset Size', fontweight='bold')
+        ax1.set_xlabel('Dataset Size (number of seats/students)')
+        ax1.set_ylabel('Average Execution Time (ms)')
+        ax1.set_yscale('log')
+        ax1.legend()
         ax1.grid(True, alpha=0.3)
         
-        # Plot 2: Latency/Response Time vs Number of Seats
-        # Greedy line in blue
-        ax2.plot(greedy_data['sizes'], greedy_data['avg_times'],
-                color='blue', marker='o', linewidth=2, markersize=6, label='Greedy')
+        # Objective Value vs Size
+        for algorithm in ['greedy', 'ilp']:
+            if results[query_type][algorithm]['sizes']:
+                obj_values = [obj if obj != float('inf') else None for obj in results[query_type][algorithm]['avg_objectives']]
+                ax2.plot(results[query_type][algorithm]['sizes'], 
+                        obj_values,
+                        marker='s', linewidth=2, markersize=8,
+                        color=colors[algorithm], label=algorithm.upper())
         
-        # Naive ILP line in orange
-        ax2.plot(ilp_data['sizes'], ilp_data['avg_times'],
-                color='orange', marker='s', linewidth=2, markersize=6, label='Naive ILP')
-        
-        ax2.set_xlabel('Number of Seats', fontsize=12)
-        ax2.set_ylabel('Response Time (ms)', fontsize=12)
-        ax2.set_title('Response Time vs Number of Seats', fontweight='bold')
-        ax2.legend(fontsize=11)
+        ax2.set_title('Average Objective Value vs Dataset Size', fontweight='bold')
+        ax2.set_xlabel('Dataset Size (number of seats/students)')
+        ax2.set_ylabel('Average Objective Value')
+        ax2.legend()
         ax2.grid(True, alpha=0.3)
-        ax2.set_yscale('log')  # Log scale for better visualization of time differences
         
-        # Clean layout and save
+        # Success Rate vs Size
+        for algorithm in ['greedy', 'ilp']:
+            if results[query_type][algorithm]['sizes']:
+                ax3.plot(results[query_type][algorithm]['sizes'], 
+                        [rate * 100 for rate in results[query_type][algorithm]['success_rates']],
+                        marker='^', linewidth=2, markersize=8,
+                        color=colors[algorithm], label=algorithm.upper())
+        
+        ax3.set_title('Success Rate vs Dataset Size', fontweight='bold')
+        ax3.set_xlabel('Dataset Size (number of seats/students)')
+        ax3.set_ylabel('Success Rate (%)')
+        ax3.set_ylim(0, 105)
+        ax3.legend()
+        ax3.grid(True, alpha=0.3)
+        
+        # Speedup Analysis
+        if (results[query_type]['greedy']['sizes'] and results[query_type]['ilp']['sizes']):
+            speedups = []
+            sizes = results[query_type]['greedy']['sizes']
+            
+            for i in range(len(sizes)):
+                greedy_time = results[query_type]['greedy']['avg_times'][i]
+                ilp_time = results[query_type]['ilp']['avg_times'][i]
+                if greedy_time > 0:
+                    speedups.append(ilp_time / greedy_time)
+                else:
+                    speedups.append(0)
+            
+            ax4.bar(range(len(sizes)), speedups, color='green', alpha=0.7)
+            ax4.set_title('Greedy Speedup Factor vs Dataset Size', fontweight='bold')
+            ax4.set_xlabel('Dataset Size')
+            ax4.set_ylabel('Speedup Factor (x times faster)')
+            ax4.set_xticks(range(len(sizes)))
+            ax4.set_xticklabels(sizes)
+            ax4.grid(True, alpha=0.3)
+            
+            # Add value labels on bars
+            for i, speedup in enumerate(speedups):
+                if speedup > 0:
+                    ax4.text(i, speedup + 0.1, f'{speedup:.1f}x', ha='center', va='bottom', fontweight='bold')
+        
         plt.tight_layout()
-        filename = os.path.join(graphs_dir, f'{query_type.lower()}_performance_comparison.png')
-        plt.savefig(filename, dpi=300, bbox_inches='tight')
+        plt.savefig(os.path.join(graphs_dir, f'comprehensive_analysis_{query_type.lower()}.png'), 
+                   dpi=300, bbox_inches='tight')
         plt.close()
-        
-        print(f"  ✅ Saved: {filename}")
+        print(f"📊 Saved comprehensive analysis: {query_type}")
     
-    # Create a summary comparison plot
-    generate_summary_plot(results, graphs_dir)
-
-def generate_summary_plot(results: Dict, graphs_dir: str):
-    """Generate a single summary plot comparing both query types."""
+    # Plot 2: Algorithm Comparison Summary
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
+    fig.suptitle('Algorithm Performance Summary Across All Experiments', fontsize=16, fontweight='bold')
     
-    print("Generating summary comparison plot...")
-    
-    # Create figure with 2 subplots for overall comparison
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
-    fig.suptitle('Algorithm Performance Summary (Q1 vs Q2)', fontsize=14, fontweight='bold')
-    
-    # Collect average performance metrics across all sizes
+    # Average performance across all sizes
     query_labels = []
-    greedy_avg_times = []
-    ilp_avg_times = []
-    greedy_avg_objs = []
-    ilp_avg_objs = []
+    greedy_times = []
+    ilp_times = []
+    greedy_objs = []
+    ilp_objs = []
     
     for query_type in ['Q1', 'Q2']:
-        if (results[query_type]['greedy']['avg_times'] and 
-            results[query_type]['ilp']['avg_times']):
-            
+        if results[query_type]['greedy']['avg_times'] and results[query_type]['ilp']['avg_times']:
             query_labels.append(query_type)
+            greedy_times.append(np.mean([t for t in results[query_type]['greedy']['avg_times'] if t > 0]))
+            ilp_times.append(np.mean([t for t in results[query_type]['ilp']['avg_times'] if t > 0]))
             
-            # Average response times
-            greedy_times = [t for t in results[query_type]['greedy']['avg_times'] if t > 0]
-            ilp_times = [t for t in results[query_type]['ilp']['avg_times'] if t > 0]
+            greedy_obj_vals = [obj for obj in results[query_type]['greedy']['avg_objectives'] if obj != float('inf')]
+            ilp_obj_vals = [obj for obj in results[query_type]['ilp']['avg_objectives'] if obj != float('inf')]
             
-            greedy_avg_times.append(np.mean(greedy_times) if greedy_times else 0)
-            ilp_avg_times.append(np.mean(ilp_times) if ilp_times else 0)
-            
-            # Average objective values
-            greedy_objs = [obj for obj in results[query_type]['greedy']['avg_objectives'] if obj != float('inf')]
-            ilp_objs = [obj for obj in results[query_type]['ilp']['avg_objectives'] if obj != float('inf')]
-            
-            greedy_avg_objs.append(np.mean(greedy_objs) if greedy_objs else 0)
-            ilp_avg_objs.append(np.mean(ilp_objs) if ilp_objs else 0)
+            greedy_objs.append(np.mean(greedy_obj_vals) if greedy_obj_vals else 0)
+            ilp_objs.append(np.mean(ilp_obj_vals) if ilp_obj_vals else 0)
     
     if query_labels:
+        # Execution time comparison
         x = np.arange(len(query_labels))
         width = 0.35
         
-        # Plot 1: Average Response Time Comparison
-        bars1 = ax1.bar(x - width/2, greedy_avg_times, width, 
-                       label='Greedy', color='blue', alpha=0.8)
-        bars2 = ax1.bar(x + width/2, ilp_avg_times, width, 
-                       label='Naive ILP', color='orange', alpha=0.8)
+        bars1 = ax1.bar(x - width/2, greedy_times, width, label='Greedy', color='#2E86AB', alpha=0.8)
+        bars2 = ax1.bar(x + width/2, ilp_times, width, label='ILP', color='#F24236', alpha=0.8)
         
-        ax1.set_title('Average Response Time', fontweight='bold')
-        ax1.set_ylabel('Response Time (ms)', fontsize=12)
-        ax1.set_xlabel('Query Type', fontsize=12)
+        ax1.set_title('Average Execution Time Comparison', fontweight='bold')
+        ax1.set_ylabel('Average Time (ms)')
+        ax1.set_xlabel('Query Type')
         ax1.set_xticks(x)
         ax1.set_xticklabels(query_labels)
         ax1.set_yscale('log')
         ax1.legend()
         ax1.grid(True, alpha=0.3)
         
-        # Add value labels on bars
+        # Add value labels
         for bars in [bars1, bars2]:
             for bar in bars:
                 height = bar.get_height()
@@ -436,21 +442,19 @@ def generate_summary_plot(results: Dict, graphs_dir: str):
                     ax1.text(bar.get_x() + bar.get_width()/2., height * 1.1,
                             f'{height:.1f}', ha='center', va='bottom', fontweight='bold')
         
-        # Plot 2: Average Objective Value Comparison
-        bars3 = ax2.bar(x - width/2, greedy_avg_objs, width, 
-                       label='Greedy', color='blue', alpha=0.8)
-        bars4 = ax2.bar(x + width/2, ilp_avg_objs, width, 
-                       label='Naive ILP', color='orange', alpha=0.8)
+        # Objective value comparison
+        bars3 = ax2.bar(x - width/2, greedy_objs, width, label='Greedy', color='#2E86AB', alpha=0.8)
+        bars4 = ax2.bar(x + width/2, ilp_objs, width, label='ILP', color='#F24236', alpha=0.8)
         
-        ax2.set_title('Average Objective Value', fontweight='bold')
-        ax2.set_ylabel('Objective Value', fontsize=12)
-        ax2.set_xlabel('Query Type', fontsize=12)
+        ax2.set_title('Average Objective Value Comparison', fontweight='bold')
+        ax2.set_ylabel('Average Objective Value')
+        ax2.set_xlabel('Query Type')
         ax2.set_xticks(x)
         ax2.set_xticklabels(query_labels)
         ax2.legend()
         ax2.grid(True, alpha=0.3)
         
-        # Add value labels on bars
+        # Add value labels
         for bars in [bars3, bars4]:
             for bar in bars:
                 height = bar.get_height()
@@ -459,15 +463,10 @@ def generate_summary_plot(results: Dict, graphs_dir: str):
                             f'{height:.3f}', ha='center', va='bottom', fontweight='bold')
     
     plt.tight_layout()
-    filename = os.path.join(graphs_dir, 'algorithm_summary.png')
-    plt.savefig(filename, dpi=300, bbox_inches='tight')
+    plt.savefig(os.path.join(graphs_dir, 'algorithm_comparison_summary.png'), 
+               dpi=300, bbox_inches='tight')
     plt.close()
-    
-    print(f"  ✅ Saved: {filename}")
-
-def generate_comprehensive_plots(results: Dict, graphs_dir: str):
-    """Generate simplified plots instead of complex visualizations."""
-    generate_simplified_plots(results, graphs_dir)
+    print(f"📊 Saved algorithm comparison summary")
 
 def print_experiment_summary(results: Dict):
     """Print comprehensive experiment summary."""
@@ -520,7 +519,7 @@ def print_experiment_summary(results: Dict):
     print("✅ Tested 4 experiment sizes: 500, 1000, 1500, 2000")
     print("✅ Tested 2 query types: Q1, Q2") 
     print("✅ Tested 2 algorithms: Greedy, ILP")
-    print("✅ Generated simplified visualizations")
+    print("✅ Generated comprehensive visualizations")
     print(f"📁 All graphs saved to: graphs/")
 
 if __name__ == "__main__":
