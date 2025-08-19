@@ -80,6 +80,81 @@ def solve_ilp(
 
     return picked, vals
 
+def solve_ilp_weighted(
+    sub: np.ndarray,                     # (N, D) data matrix
+    size_: int,                          # exact total picks: Σ x_i == size_
+    rep: int,                            # per-item max copies (1 for 0/1)
+    weights: List[float],                # weights for each attribute [w1, w2, ...]
+    cons: List[Dict[str, Union[int, float, str]]] = None,  # constraints
+    verbose: bool = True
+) -> Tuple[List[int], List[int]]:
+    """
+    Returns: (picked_indices, per_item_counts)
+    
+    This function handles weighted objectives like:
+    - Q1: minimize noise (weights = [0, 1, 0, 0])
+    - Q2: minimize (noise - 0.3*brightness) (weights = [-0.3, 1, 0, 0])
+    
+    Note: For Q2, we use negative weight for brightness since we want to maximize it
+    """
+    N, D = sub.shape
+    
+    if cons is None:
+        cons = []
+    
+    # decision variables: integers 0..rep
+    x = [pulp.LpVariable(f"x_{i}", lowBound=0, upBound=rep, cat=pulp.LpInteger) for i in range(N)]
+
+    # model and cardinality
+    prob = pulp.LpProblem("weighted_package_selection", pulp.LpMinimize)
+    prob += pulp.lpSum(x) == size_
+
+    # constraints (MIN => <=, MAX => >=)
+    cons_exprs = []
+    for c in cons:
+        a = int(c['attr'])
+        pref = str(c['pref']).upper()
+        b = float(c['bound'])
+        assert pref in ('MIN', 'MAX'), "cons.pref must be 'MIN' or 'MAX'"
+        assert 0 <= a < D, "cons.attr out of range"
+        
+        expr = pulp.lpSum(sub[i, a] * x[i] for i in range(N))
+        cons_exprs.append(expr)
+        if pref == 'MIN':
+            prob += expr <= b
+        else:
+            prob += expr >= b
+
+    # weighted objective: minimize Σ weights[j] * attr[j] * x[i]
+    obj_expr = pulp.lpSum(
+        weights[j] * sub[i, j] * x[i] 
+        for i in range(N) 
+        for j in range(min(len(weights), D))
+    )
+    prob += obj_expr
+
+    # solve
+    status = prob.solve(pulp.PULP_CBC_CMD(msg=False))
+    status_name = pulp.LpStatus[prob.status]
+
+    vals = [int(v.value()) for v in x]
+    picked = [i for i, v in enumerate(vals) if v > 0]
+
+    if verbose:
+        print(f"Status: {status_name}")
+        if status_name != "Optimal":
+            print("No optimal solution found (infeasible or solver stopped).")
+        print(f"Objective value: {pulp.value(prob.objective):.6f}")
+        print(f"Total picked: {sum(vals)}  (target size={size_})")
+        for k, (c, e) in enumerate(zip(cons, cons_exprs)):
+            realized = float(e.value())
+            arrow = "<=" if c['pref'] == 'MIN' else ">="
+            print(f"Constraint {k}: Σ attr[{c['attr']}]·x {arrow} {c['bound']}  | realized={realized:.6f}")
+        reps = {i: v for i, v in enumerate(vals) if v > 0}
+        print(f"Picked indices (counts): {reps}")
+
+    return picked, vals
+
 def load_seat_data():
     """Load and prepare seat data for ILP."""
     seats_df = pd.read_csv("src/seats.csv")
