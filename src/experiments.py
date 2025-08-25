@@ -125,6 +125,68 @@ def package_queries(model_type='greedy', group_size=5, brightness_threshold=70, 
         'success': result is not None
     }
 
+def generate_realistic_noise_layout(layout, brightness_range=(80, 20), brightness_sd=3, noise_sd=10):
+    """
+    Generate attributes with REALISTIC noise pattern:
+    - Corner seats: Quietest (0-20) - best for study
+    - Edge seats: Medium noise (21-79) - moderate for study  
+    - Center seats: Loudest (80-100) - worst for study
+    
+    This is more realistic than the original pattern.
+    """
+    # Unpack dimensions
+    rooms, tr, tc, sr, sc = layout.shape
+    total_rows = tr * sr
+    total_cols = tc * sc
+
+    # Brightness: linear ramp from front to back
+    brightness_bases = np.linspace(brightness_range[0], brightness_range[1], total_rows)
+
+    # Create INVERTED weights for realistic noise pattern
+    # For 20x20 grid: rows 0-19, cols 0-19
+    # Center: rows 9-10, cols 9-10 (should be loudest)
+    # Corners: rows 0,19, cols 0,19 (should be quietest)
+    
+    # Calculate distance from center for each position
+    center_row = total_rows // 2
+    center_col = total_cols // 2
+    
+    # Initialize attributes tensor
+    attributes = np.zeros((rooms, tr, tc, sr, sc, 2), dtype=int)
+    
+    # Generate attributes for each seat
+    for room in range(rooms):
+        for tr_i in range(tr):
+            for tc_i in range(tc):
+                for sr_i in range(sr):
+                    for sc_i in range(sc):
+                        # Brightness with small noise
+                        brightness = int(np.clip(np.random.normal(brightness_bases[tr_i * sr + sr_i], brightness_sd), 0, 100))
+                        
+                        # Calculate distance from center (0 = center, max = corner)
+                        row_pos = tr_i * sr + sr_i
+                        col_pos = tc_i * sc + sc_i
+                        
+                        # Euclidean distance from center
+                        row_dist = abs(row_pos - center_row)
+                        col_dist = abs(col_pos - center_col)
+                        distance_from_center = (row_dist**2 + col_dist**2)**0.5
+                        
+                        # Maximum possible distance (from center to corner)
+                        max_distance = ((center_row**2 + center_col**2)**0.5)
+                        
+                        # Invert: closer to center = louder, farther = quieter
+                        # Scale to 0-100 range
+                        noise_base = (1 - (distance_from_center / max_distance)) * 100
+                        
+                        # Add Gaussian noise and clip to 0-100
+                        noise = int(np.clip(np.random.normal(noise_base, noise_sd), 0, 100))
+                        
+                        # Set attributes
+                        attributes[room, tr_i, tc_i, sr_i, sc_i] = (brightness, noise)
+    
+    return attributes
+
 def generate_experiment_dataset():
     """
     Generate a one-time dataset with 2000 seats and 2000 students for experiments.
@@ -143,7 +205,9 @@ def generate_experiment_dataset():
     # Let's use: 4 rooms * 5 tables per room * 4 rows per table * 5 seats per row = 400 seats per room
     # Total: 4 * 5 * 4 * 5 = 400 seats per room, so we need 5 rooms
     layout = generate_layout((5, 5, 4, 5, 4))  # 5 rooms, 5 tables, 4 rows, 5 seats, 4 columns
-    attrs = generate_attribute_layout(
+    
+    # Generate attributes with INVERTED noise pattern (realistic: corners quiet, center loud)
+    attrs = generate_realistic_noise_layout(
         layout,
         brightness_range=(80, 20),
         brightness_sd=3,
@@ -309,15 +373,16 @@ def run_experiments():
         
         print(f"Running experiments across different dataset sizes for {query_type}...")
         
-        # Load the pre-generated dataset once
+        # Load the pre-generated dataset once (seats are reset to available for each query type)
         seats_df, students_df = load_experiment_dataset()
         
         for seat_count in seat_counts:
             print(f"\nTesting with {seat_count} seats and {seat_count} students...")
             
             # Use the FIRST N seats (not random sampling) to ensure consistency
+            # Different portions of the same dataset: 1-500, 1-1000, 1-1500, 1-2000
             seats_sample = seats_df.head(seat_count).copy()
-            seats_sample['Seat_Available'] = True  # Reset availability
+            seats_sample['Seat_Available'] = True  # Reset availability for this trial
             
             # Load students based on the sequential set pattern
             if seat_count == 500:
@@ -338,7 +403,8 @@ def run_experiments():
             print(f"  Group range: {students_sample['Group_ID'].min()}-{students_sample['Group_ID'].max()}")
             
             # Get all groups and their parameters from students data
-            # Sort by Group_ID to ensure consistent order across algorithms
+            # Sort by Group_ID to ensure consistent order across algorithms and trials
+            # Groups are processed in the same order: 1, 2, 3, 4, 5, ..., N
             groups = students_sample.groupby('Group_ID')
             # Convert to sorted list to ensure consistent processing order
             group_list = sorted(groups, key=lambda x: x[0])
@@ -366,7 +432,12 @@ def run_experiments():
                 # Test Greedy Algorithm for this group
                 greedy_success = False
                 try:
-                    table_stats = create_table_stats(seats_sample)
+                    # Create a fresh copy of seats for greedy to ensure fair comparison
+                    # Seat availability is reset between greedy and ILP for each group
+                    greedy_seats = seats_sample.copy()
+                    greedy_seats['Seat_Available'] = True  # Reset availability for greedy
+                    
+                    table_stats = create_table_stats(greedy_seats)
                     adjacency_graph = create_adjacency_graph(table_stats)
                     
                     start_time = time.time()
@@ -397,10 +468,10 @@ def run_experiments():
                         })
                         greedy_success = True
                         
-                        # Update seat availability for subsequent groups
+                        # Mark assigned seats as unavailable for subsequent groups in this trial
                         for seat in greedy_result:
-                            seat_mask = (seats_sample['Seat_ID'] == seat['Seat_ID'])
-                            seats_sample.loc[seat_mask, 'Seat_Available'] = False
+                            seat_mask = (greedy_seats['Seat_ID'] == seat['Seat_ID'])
+                            greedy_seats.loc[seat_mask, 'Seat_Available'] = False
                     else:
                         greedy_results_for_size.append({
                             'objective_value': None,
@@ -419,8 +490,13 @@ def run_experiments():
                 # Test ILP Algorithm for this group (only for smaller sizes)
                 if seat_count <= 2000:
                     try:
+                        # Create a fresh copy of seats for ILP to ensure fair comparison
+                        # Seat availability is reset between greedy and ILP for each group
+                        ilp_seats = seats_sample.copy()
+                        ilp_seats['Seat_Available'] = True  # Reset availability for ILP
+                        
                         # Prepare data matrix for ILP
-                        available_seats = seats_sample[seats_sample['Seat_Available'] == True]
+                        available_seats = ilp_seats[ilp_seats['Seat_Available'] == True]
                         if len(available_seats) >= group_size:
                             data_matrix = available_seats[['Brightness', 'Noise', 'Room_ID', 'Table_ID']].values
                             
@@ -466,11 +542,11 @@ def run_experiments():
                                     'success': True
                                 })
                                 
-                                # Update seat availability for subsequent groups
+                                # Mark assigned seats as unavailable for subsequent groups in this trial
                                 for idx in picked:
                                     seat_id = available_seats.iloc[idx]['Seat_ID']
-                                    seat_mask = (seats_sample['Seat_ID'] == seat_id)
-                                    seats_sample.loc[seat_mask, 'Seat_Available'] = False
+                                    seat_mask = (ilp_seats['Seat_ID'] == seat_id)
+                                    ilp_seats.loc[seat_mask, 'Seat_Available'] = False
                             else:
                                 ilp_results_for_size.append({
                                     'objective_value': None,

@@ -18,6 +18,12 @@ def solve_ilp(
       - Constraint with 'MIN' => Σ attr[a]·x <= bound (upper bound).
       - Constraint with 'MAX' => Σ attr[a]·x >= bound (lower bound).
     """
+    # Safety check for empty dataset
+    if sub.size == 0:
+        if verbose:
+            print("Warning: Empty dataset provided")
+        return [], []  # Return empty solution for empty dataset
+    
     N, D = sub.shape
 
     # normalize objective fields
@@ -62,19 +68,48 @@ def solve_ilp(
     status = prob.solve(pulp.PULP_CBC_CMD(msg=False))
     status_name = pulp.LpStatus[prob.status]
 
+    # CRITICAL FIX: Check solver status before extracting solution
+    if status_name not in ["Optimal"]:
+        if verbose:
+            print(f"Status: {status_name}")
+            if status_name == "Infeasible":
+                print("Problem is infeasible - no solution exists that satisfies all constraints.")
+            elif status_name == "Unbounded":
+                print("Problem is unbounded - objective can be improved indefinitely.")
+            elif status_name == "Not Solved":
+                print("Solver did not complete - problem may be too complex or timed out.")
+            else:
+                print(f"Unexpected solver status: {status_name}")
+            print("Returning empty solution due to solver failure.")
+        return [], []  # Return empty solution for non-optimal problems
+
+    # Only extract solution if status is Optimal
     vals = [int(v.value()) for v in x]
     picked = [i for i, v in enumerate(vals) if v > 0]
 
+    # Additional safety checks: verify solution integrity
+    if sum(vals) != size_:
+        if verbose:
+            print(f"ERROR: Solution has {sum(vals)} seats but target was {size_}")
+            print("This indicates a solver bug - returning empty solution")
+        return [], []  # Return empty solution for invalid results
+
+    # Additional safety check: verify solution actually satisfies constraints
     if verbose:
         print(f"Status: {status_name}")
-        if status_name != "Optimal":
-            print("No optimal solution found (infeasible or solver stopped).")
         print(f"Objective value: {pulp.value(prob.objective):.6f}")
         print(f"Total picked: {sum(vals)}  (target size={size_})")
         for k, (c, e) in enumerate(zip(norm_cons, cons_exprs)):
             realized = float(e.value())
             arrow = "<=" if c['pref'] == 'MIN' else ">="
             print(f"Constraint {k}: Σ attr[{c['attr']}]·x {arrow} {c['bound']}  | realized={realized:.6f}")
+            
+            # Verify constraint satisfaction
+            if c['pref'] == 'MIN' and realized > c['bound']:
+                print(f"  WARNING: Constraint {k} violated! {realized:.6f} > {c['bound']}")
+            elif c['pref'] == 'MAX' and realized < c['bound']:
+                print(f"  WARNING: Constraint {k} violated! {realized:.6f} < {c['bound']}")
+        
         reps = {i: v for i, v in enumerate(vals) if v > 0}
         print(f"Picked indices (counts): {reps}")
 
@@ -97,6 +132,12 @@ def solve_ilp_weighted(
     
     Note: For Q2, we use negative weight for brightness since we want to maximize it
     """
+    # Safety check for empty dataset
+    if sub.size == 0:
+        if verbose:
+            print("Warning: Empty dataset provided")
+        return [], []  # Return empty solution for empty dataset
+    
     N, D = sub.shape
     
     if cons is None:
@@ -137,19 +178,47 @@ def solve_ilp_weighted(
     status = prob.solve(pulp.PULP_CBC_CMD(msg=False))
     status_name = pulp.LpStatus[prob.status]
 
+    # CRITICAL FIX: Check solver status before extracting solution
+    if status_name not in ["Optimal"]:
+        if verbose:
+            print(f"Status: {status_name}")
+            if status_name == "Infeasible":
+                print("Problem is infeasible - no solution exists that satisfies all constraints.")
+            elif status_name == "Unbounded":
+                print("Problem is unbounded - objective can be improved indefinitely.")
+            elif status_name == "Not Solved":
+                print("Solver did not complete - problem may be too complex or timed out.")
+            else:
+                print(f"Unexpected solver status: {status_name}")
+            print("Returning empty solution due to solver failure.")
+        return [], []  # Return empty solution for non-optimal problems
+
+    # Only extract solution if status is Optimal
     vals = [int(v.value()) for v in x]
     picked = [i for i, v in enumerate(vals) if v > 0]
 
+    # Additional safety checks: verify solution integrity
+    if sum(vals) != size_:
+        if verbose:
+            print(f"ERROR: Solution has {sum(vals)} seats but target was {size_}")
+            print("This indicates a solver bug - returning empty solution")
+        return [], []  # Return empty solution for invalid results
+
     if verbose:
         print(f"Status: {status_name}")
-        if status_name != "Optimal":
-            print("No optimal solution found (infeasible or solver stopped).")
         print(f"Objective value: {pulp.value(prob.objective):.6f}")
         print(f"Total picked: {sum(vals)}  (target size={size_})")
         for k, (c, e) in enumerate(zip(cons, cons_exprs)):
             realized = float(e.value())
             arrow = "<=" if c['pref'] == 'MIN' else ">="
             print(f"Constraint {k}: Σ attr[{c['attr']}]·x {arrow} {c['bound']}  | realized={realized:.6f}")
+            
+            # Verify constraint satisfaction
+            if c['pref'] == 'MIN' and realized > c['bound']:
+                print(f"  WARNING: Constraint {k} violated! {realized:.6f} > {c['bound']}")
+            elif c['pref'] == 'MAX' and realized < c['bound']:
+                print(f"  WARNING: Constraint {k} violated! {realized:.6f} < {c['bound']}")
+        
         reps = {i: v for i, v in enumerate(vals) if v > 0}
         print(f"Picked indices (counts): {reps}")
 
