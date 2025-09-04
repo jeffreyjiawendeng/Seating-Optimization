@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from ilp import solve_ilp, solve_ilp_weighted, load_seat_data
 from greedy import greedy_seat_selection, load_data, create_table_stats, create_adjacency_graph
+from sketchrefine import sketchrefine_seat_selection
 import time
 import os
 import random
@@ -9,10 +10,10 @@ import matplotlib.pyplot as plt
 
 def package_queries(model_type='greedy', group_size=5, brightness_threshold=70, query_type=None):
     """
-    Execute package queries using either greedy or ILP algorithm.
+    Execute package queries using greedy, ILP, or SketchRefine algorithm.
     
     Args:
-        model_type (str): 'greedy' or 'ilp'
+        model_type (str): 'greedy', 'ilp', or 'sketchrefine'
         group_size (int): Size of the group to place
         brightness_threshold (float): Minimum brightness requirement
         query_type (str): 'Q1', 'Q2', or None for random selection
@@ -113,6 +114,32 @@ def package_queries(model_type='greedy', group_size=5, brightness_threshold=70, 
             result = None
             objective_value = None
     
+    elif model_type == 'sketchrefine':
+        # Load data for SketchRefine algorithm
+        seats_df, students_df = load_experiment_dataset()
+        
+        # Run SketchRefine algorithm
+        result_dict = sketchrefine_seat_selection(
+            group_size=group_size,
+            brightness_threshold=brightness_threshold,
+            seats_df=seats_df,
+            query_type=query_type
+        )
+        
+        if result_dict and result_dict['success']:
+            result = result_dict['seats']
+            avg_brightness = np.mean([seat['Brightness'] for seat in result])
+            avg_noise = np.mean([seat['Noise'] for seat in result])
+            
+            # Calculate objective value based on query type
+            if query_type == 'Q1':
+                objective_value = avg_noise
+            else:
+                objective_value = avg_noise - 0.3 * avg_brightness
+        else:
+            result = None
+            objective_value = None
+    
     execution_time = (time.time() - start_time) * 1000  # Convert to milliseconds
     
     return {
@@ -121,7 +148,7 @@ def package_queries(model_type='greedy', group_size=5, brightness_threshold=70, 
         'objective_str': objective_str,
         'result': result,
         'objective_value': objective_value,
-        'execution_time_ms': execution_time,
+        'execution_time_ms': execution_time if model_type != 'sketchrefine' else result_dict['execution_time_ms'] if result_dict else None,
         'success': result is not None
     }
 
@@ -358,7 +385,7 @@ def run_experiments():
     
     # Load the groups data
     print("Loading groups data...")
-    groups_df = pd.read_csv('groups.csv')
+    groups_df = pd.read_csv('src/groups.csv')
     print(f"Loaded {len(groups_df)} students from groups.csv")
     
     # Run experiments for both query types
@@ -370,6 +397,7 @@ def run_experiments():
         # Results storage for this query
         greedy_results = {'sizes': [], 'objective_values': [], 'execution_times': [], 'success_rates': [], 'variances': []}
         ilp_results = {'sizes': [], 'objective_values': [], 'execution_times': [], 'success_rates': [], 'variances': []}
+        sketchrefine_results = {'sizes': [], 'objective_values': [], 'execution_times': [], 'success_rates': [], 'variances': []}
         
         print(f"Running experiments across different dataset sizes for {query_type}...")
         
@@ -412,6 +440,7 @@ def run_experiments():
             # Results storage for this dataset size
             greedy_results_for_size = []
             ilp_results_for_size = []
+            sketchrefine_results_for_size = []
             
             # Set weights based on query type
             if query_type == 'Q1':
@@ -567,6 +596,55 @@ def run_experiments():
                             'execution_time': None,
                             'success': False
                         })
+                
+                # Test SketchRefine Algorithm for this group
+                try:
+                    # Create a fresh copy of seats for SketchRefine to ensure fair comparison
+                    sketchrefine_seats = seats_sample.copy()
+                    sketchrefine_seats['Seat_Available'] = True  # Reset availability for SketchRefine
+                    
+                    start_time = time.time()
+                    sketchrefine_result = sketchrefine_seat_selection(
+                        group_size=group_size,
+                        brightness_threshold=brightness_threshold,
+                        seats_df=sketchrefine_seats,
+                        query_type=query_type
+                    )
+                    
+                    if sketchrefine_result and sketchrefine_result['success']:
+                        avg_brightness = np.mean([seat['Brightness'] for seat in sketchrefine_result['seats']])
+                        avg_noise = np.mean([seat['Noise'] for seat in sketchrefine_result['seats']])
+                        
+                        # Calculate objective value based on query type
+                        if query_type == 'Q1':
+                            sketchrefine_obj_value = avg_noise
+                        else:  # Q2
+                            sketchrefine_obj_value = avg_noise - 0.3 * avg_brightness
+                        
+                        sketchrefine_results_for_size.append({
+                            'objective_value': sketchrefine_obj_value,
+                            'execution_time': sketchrefine_result['execution_time_ms'],
+                            'success': True
+                        })
+                        
+                        # Mark assigned seats as unavailable for subsequent groups in this trial
+                        for seat in sketchrefine_result['seats']:
+                            seat_mask = (sketchrefine_seats['Seat_ID'] == seat['Seat_ID'])
+                            sketchrefine_seats.loc[seat_mask, 'Seat_Available'] = False
+                    else:
+                        sketchrefine_results_for_size.append({
+                            'objective_value': None,
+                            'execution_time': sketchrefine_result['execution_time_ms'] if sketchrefine_result else None,
+                            'success': False
+                        })
+                        
+                except Exception as e:
+                    print(f"      SketchRefine failed for group {group_id}: {e}")
+                    sketchrefine_results_for_size.append({
+                        'objective_value': None,
+                        'execution_time': None,
+                        'success': False
+                    })
             
             # Aggregate results for this dataset size
             if greedy_results_for_size:
@@ -608,6 +686,26 @@ def run_experiments():
                     print(f"    Average objective: {avg_obj_ilp:.2f}, Variance: {var_obj_ilp:.2f}")
                 else:
                     print(f"  ILP Summary: 0/{len(ilp_results_for_size)} groups successful (0.0%)")
+            
+            if sketchrefine_results_for_size:
+                successful_sketchrefine = [r for r in sketchrefine_results_for_size if r['success']]
+                sketchrefine_success_rate = len(successful_sketchrefine) / len(sketchrefine_results_for_size)
+                
+                if successful_sketchrefine:
+                    avg_obj_sketchrefine = np.mean([r['objective_value'] for r in successful_sketchrefine])
+                    avg_time_sketchrefine = np.mean([r['execution_time'] for r in successful_sketchrefine])
+                    var_obj_sketchrefine = np.var([r['objective_value'] for r in successful_sketchrefine])
+                    
+                    sketchrefine_results['sizes'].append(seat_count)
+                    sketchrefine_results['objective_values'].append(avg_obj_sketchrefine)
+                    sketchrefine_results['execution_times'].append(avg_time_sketchrefine)
+                    sketchrefine_results['success_rates'].append(sketchrefine_success_rate)
+                    sketchrefine_results['variances'].append(var_obj_sketchrefine)
+                    
+                    print(f"  SketchRefine Summary: {len(successful_sketchrefine)}/{len(sketchrefine_results_for_size)} groups successful ({sketchrefine_success_rate*100:.1f}%)")
+                    print(f"    Average objective: {avg_obj_sketchrefine:.2f}, Variance: {var_obj_sketchrefine:.2f}")
+                else:
+                    print(f"  SketchRefine Summary: 0/{len(sketchrefine_results_for_size)} groups successful (0.0%)")
         
         # Print the data values for this query
         print(f"\n{'-'*60}")
@@ -624,6 +722,12 @@ def run_experiments():
         print(f"  Objective Values: {[f'{val:.2f}' for val in ilp_results['objective_values']]}")
         print(f"  Execution Times (ms): {[f'{val:.2f}' for val in ilp_results['execution_times']]}")
         print(f"  Variances: {[f'{val:.2f}' for val in ilp_results['variances']]}")
+        
+        print(f"\nSketchRefine Results:")
+        print(f"  Sizes: {sketchrefine_results['sizes']}")
+        print(f"  Objective Values: {[f'{val:.2f}' for val in sketchrefine_results['objective_values']]}")
+        print(f"  Execution Times (ms): {[f'{val:.2f}' for val in sketchrefine_results['execution_times']]}")
+        print(f"  Variances: {[f'{val:.2f}' for val in sketchrefine_results['variances']]}")
         
         # Create plots for this query
         print(f"\nGenerating plots for {query_type}...")
@@ -654,6 +758,14 @@ def run_experiments():
                                                           ilp_results['objective_values'], 
                                                           ilp_results['variances'])):
                 plt.errorbar(size, obj_val, yerr=np.sqrt(var), fmt='none', color='orange', alpha=0.7)
+        if sketchrefine_results['sizes']:
+            plt.plot(sketchrefine_results['sizes'], sketchrefine_results['objective_values'], 
+                    'g-^', label='SketchRefine', linewidth=2, markersize=6)
+            # Add variance bars
+            for i, (size, obj_val, var) in enumerate(zip(sketchrefine_results['sizes'], 
+                                                          sketchrefine_results['objective_values'], 
+                                                          sketchrefine_results['variances'])):
+                plt.errorbar(size, obj_val, yerr=np.sqrt(var), fmt='none', color='green', alpha=0.7)
         
         plt.xlabel('Number of Seats/Students')
         plt.ylabel(f'Objective Value ({obj_label})')
@@ -669,6 +781,9 @@ def run_experiments():
         if ilp_results['sizes']:
             plt.plot(ilp_results['sizes'], ilp_results['execution_times'], 
                     'orange', marker='s', linestyle='-', label='Naive ILP', linewidth=2, markersize=6)
+        if sketchrefine_results['sizes']:
+            plt.plot(sketchrefine_results['sizes'], sketchrefine_results['execution_times'], 
+                    'g-^', label='SketchRefine', linewidth=2, markersize=6)
         
         plt.xlabel('Number of Seats/Students')
         plt.ylabel('Execution Time (ms)')
@@ -685,6 +800,9 @@ def run_experiments():
         if ilp_results['sizes']:
             plt.plot(ilp_results['sizes'], ilp_results['variances'], 
                     'orange', marker='s', linestyle='-', label='Naive ILP', linewidth=2, markersize=6)
+        if sketchrefine_results['sizes']:
+            plt.plot(sketchrefine_results['sizes'], sketchrefine_results['variances'], 
+                    'g-^', label='SketchRefine', linewidth=2, markersize=6)
         
         plt.xlabel('Number of Seats/Students')
         plt.ylabel('Variance of Objective Values')
@@ -700,6 +818,9 @@ def run_experiments():
         if ilp_results['sizes']:
             plt.plot(ilp_results['sizes'], [r*100 for r in ilp_results['success_rates']], 
                     'orange', marker='s', linestyle='-', label='Naive ILP', linewidth=2, markersize=6)
+        if sketchrefine_results['sizes']:
+            plt.plot(sketchrefine_results['sizes'], [r*100 for r in sketchrefine_results['success_rates']], 
+                    'g-^', label='SketchRefine', linewidth=2, markersize=6)
         
         plt.xlabel('Number of Seats/Students')
         plt.ylabel('Success Rate (%)')
@@ -734,6 +855,15 @@ def run_experiments():
         if ilp_results['variances']:
             print(f"  - Average variance: {np.mean(ilp_results['variances']):.2f}")
         
+        print(f"\nSketchRefine Algorithm:")
+        print(f"  - Tested on {len(sketchrefine_results['sizes'])} dataset sizes")
+        if sketchrefine_results['execution_times']:
+            print(f"  - Average execution time: {np.mean(sketchrefine_results['execution_times']):.2f}ms")
+        if sketchrefine_results['objective_values']:
+            print(f"  - Average objective value: {np.mean(sketchrefine_results['objective_values']):.2f}")
+        if sketchrefine_results['variances']:
+            print(f"  - Average variance: {np.mean(sketchrefine_results['variances']):.2f}")
+        
         # Calculate and print success rates
         print(f"\nSuccess Rates for {query_type}:")
         if greedy_results['sizes']:
@@ -748,6 +878,13 @@ def run_experiments():
             for i, size in enumerate(ilp_results['sizes']):
                 if i < len(ilp_results['success_rates']):
                     success_rate = ilp_results['success_rates'][i] * 100
+                    print(f"    {size} seats: {success_rate:.1f}% success rate")
+        
+        if sketchrefine_results['sizes']:
+            print(f"  SketchRefine Algorithm:")
+            for i, size in enumerate(sketchrefine_results['sizes']):
+                if i < len(sketchrefine_results['success_rates']):
+                    success_rate = sketchrefine_results['success_rates'][i] * 100
                     print(f"    {size} seats: {success_rate:.1f}% success rate")
     
     print(f"\n{'='*80}")
@@ -776,6 +913,13 @@ if __name__ == "__main__":
     print(f"ILP Q1: Success={result_ilp_q1['success']}, "
           f"Objective={obj_val_str_ilp}, "
           f"Time={result_ilp_q1['execution_time_ms']:.2f}ms")
+    
+    # Test SketchRefine with Q1
+    result_sketchrefine_q1 = package_queries(model_type='sketchrefine', query_type='Q1')
+    obj_val_str_sketchrefine = f"{result_sketchrefine_q1['objective_value']:.2f}" if result_sketchrefine_q1['objective_value'] is not None else 'N/A'
+    print(f"SketchRefine Q1: Success={result_sketchrefine_q1['success']}, "
+          f"Objective={obj_val_str_sketchrefine}, "
+          f"Time={result_sketchrefine_q1['execution_time_ms']:.2f}ms")
     
     # Run full experiments
     print("\nRunning full experiments...")
