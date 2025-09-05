@@ -1,270 +1,215 @@
 import numpy as np
 import pandas as pd
 
-def mirror_weights(length):
-    """
-    Create an array of weights that increases then decreases linearly at the midpoint of an array.
-    
-    Input: 
-        length: number representing the length of the array.
-       
-    Output: 
-        weights: List representing weights
-     
-    Ex:
-        length=6 => [1, 2, 3, 3, 2, 1]
-        length=7 => [1, 2, 3, 4, 3, 2, 1]
-    """
-    midpoint = length // 2
-    
-    if length % 2 == 0:
-        # length is even: midpoint is the leftmost of the two middle points
-        increasing = list(range(1, midpoint + 1)) # 1, 2, ..., midpoint
-        decreasing = list(range(midpoint, 0, -1)) # midpoint, ..., 2, 1
-    else:
-        # length is odd: midpoint is the exact midpoint
-        increasing = list(range(1, midpoint + 2)) # 1, 2, ..., midpoint
-        decreasing = list(range(midpoint, 0, -1)) # midpoint - 1, ..., 1
-    
-    weights = increasing + decreasing
-    
-    return weights
 
-def generate_layout(shape=(3, 2, 5, 2, 5)):
+def generate_seats(num_seats=2000,
+                   num_tables=None,
+                   num_rooms=5,
+                   cleanliness_min=1,
+                   cleanliness_max=100,
+                   noise_min=1,
+                   noise_max=100):
     """
-    Create a layout tensor of ones with the given 5D shape.
+    Generate seats with uniformly distributed random attributes.
     
-    Input:
-        shape: 5D shape representing the number of rooms, the shape of each room, and the shape of each table.
+    Args:
+        num_seats: Total number of seats to generate
+        num_tables: Number of tables (if None, calculated as num_seats // 10)
+        num_rooms: Number of rooms to distribute tables across
+        cleanliness_min: Minimum value for cleanliness uniform distribution
+        cleanliness_max: Maximum value for cleanliness uniform distribution
+        noise_min: Minimum value for noise uniform distribution
+        noise_max: Maximum value for noise uniform distribution
         
-    Output:
-        1's tensor of shape shape.
+    Returns:
+        DataFrame with seat data
     """
-    return np.ones(shape, dtype=int)
-
-def generate_attribute_layout(layout, brightness_range=(80, 20), brightness_sd=3, noise_sd=10):
-    """
-    Returns a tensor of shape (rooms, tr, tc, sr, sc, 3) with attributes [brightness, noise, whiteboards] for each seat.
-
-    Brightness: total_rows = table_rows * seat_rows => linear ramp.
-    Noise: base = row_weight * col_weight where row_weight and col_weight are mirrored ramps => scaled max = 100 => add a Gaussian
+    if num_tables is None:
+        num_tables = max(1, num_seats // 10)  # Default: ~10 seats per table
     
-    Input:
-        layout: 5D tensor describing the layout of the library.
-        brightness_range: range of integers for the brightness.
-        brightness_sd: standard deviation for the brightness level, int.
-        noise_sd: standard deviation for the noise level, int.
-        
-    Ouutput:
-        attributes: 6D tensor of seats and their attributes.
-    """ 
-    # Unpack and set dimension variables
-    rooms, tr, tc, sr, sc = layout.shape
-    total_rows = tr * sr
-    total_cols = tc * sc
-
-    # brightness base for each row 
-    brightness_bases = np.linspace(brightness_range[0], brightness_range[1], total_rows)
-
-    # linear ramps
-    row_weights = mirror_weights(total_rows) 
-    col_weights = mirror_weights(total_cols) 
-
-    # Scale maps max to 100
-    max_base = (total_rows//2) * (total_cols//2)
-    scale = 100 / max_base
-
-    # Initialize zeros attribute tensor 
-    attributes = np.zeros((rooms, tr, tc, sr, sc, 2), dtype=int)
-    
-    # Initialize attributes for each seat
-    for room in range(rooms):
-        for tr_i in range(tr):
-            for tc_i in range(tc):
-                for sr_i in range(sr):
-                    for sc_i in range(sc):
-                        # brightness with small noise
-                        brightness = int(np.clip(np.random.normal(brightness_bases[tr_i * sr + sr_i], brightness_sd), 0, 100))
-                        
-                        # noise base
-                        noise_base = row_weights[tr_i * sr + sr_i] * col_weights[tc_i * sc + sc_i] * scale
-                        
-                        # add gaussian noise and clip
-                        noise = int(np.clip(np.random.normal(noise_base, noise_sd), 0, 100))                
-                        
-                        # set attributes
-                        attributes[room, tr_i, tc_i, sr_i, sc_i] = (brightness, noise)
-                        
-    # Return row of attributes 
-    return attributes
-
-def display_attribute_layout(attributes):
-    """
-    Prints each room's tables with seat attributes: (brightness, noise) for each seat.
-    
-    Input: 
-        Attributes: 5D 1's tensor.
-    """
-    rooms, tr, tc, sr, sc, _ = attributes.shape
-
-    for room in range(rooms):
-        print(f"Room {room+1}")
-        for tr_i in range(tr):
-            for sr_i in range(sr):
-                row_sections = []
-                for tc_i in range(tc):
-                    seats = []
-                    for sc_i in range(sc):
-                        b, n = attributes[room, tr_i, tc_i, sr_i, sc_i]
-                        seats.append(f"({b:3d},{n:3d})")
-                    row_sections.append(' '.join(seats))
-                print(' | '.join(row_sections))
-            if tr_i < tr - 1:
-                print('-' * (12 * tc * sc + tc * (sc - 1) + (tc - 1) * 3))
-        print()
-
-def attributes_to_csv(seats, path="data/seats.csv"):
-    """
-    Turn the attrs tensor into a flat DataFrame with columns:
-        Seat_ID, Table_ID, Room_ID, Brightness, Whiteboards, Noise, Seat_Available, Table_Available, Room_Available
-    and save to CSV.
-    
-    Input:
-        seats: 6D tensor of seats and their attributes (Brightness, Whiteboards, and Noise).
-        path: CSV file path.
-        
-    Output: 
-        df: dataframe containing the seats table.
-    """
-    rooms, tr, tc, sr, sc, _ = seats.shape
-    rows = []
+    seats = []
     seat_id = 1
-    table_counter = 1
-
-    for room in range(rooms):
-        room_id = room + 1
-        for tr_i in range(tr):
-            for tc_i in range(tc):
-                table_id = table_counter
-                table_counter += 1
-                for sr_i in range(sr):
-                    for sc_i in range(sc):
-                        b, n = attrs[room, tr_i, tc_i, sr_i, sc_i]
-                        rows.append({
-                            "Seat_ID":         seat_id,
-                            "Table_ID":        table_id,
-                            "Room_ID":         room_id,
-                            "Brightness":      b,
-                            "Noise":           n,
-                            "Seat_Available":  True,
-                            "Table_Available": True,
-                            "Room_Available":  True
-                        })
-                        seat_id += 1
-
-    df = pd.DataFrame(rows, columns=[
+    
+    # Calculate seats per table
+    seats_per_table = max(1, num_seats // num_tables)
+    
+    for table_id in range(1, num_tables + 1):
+        # Assign room (distribute tables evenly across rooms)
+        room_id = ((table_id - 1) % num_rooms) + 1
+        
+        # Determine how many seats for this table
+        remaining_seats = num_seats - (seat_id - 1)
+        remaining_tables = num_tables - table_id + 1
+        current_table_seats = min(seats_per_table, remaining_seats // remaining_tables) if remaining_tables > 1 else remaining_seats
+        
+        for _ in range(current_table_seats):
+            if seat_id > num_seats:
+                break
+                
+            # Generate uniformly distributed attributes
+            cleanliness = np.random.randint(cleanliness_min, cleanliness_max + 1)
+            noise = np.random.randint(noise_min, noise_max + 1)
+            
+            seats.append({
+                "Seat_ID": seat_id,
+                "Table_ID": table_id,
+                "Room_ID": room_id,
+                "Cleanliness": cleanliness,
+                "Noise": noise,
+                "Seat_Available": True,
+                "Table_Available": True,
+                "Room_Available": True
+            })
+            seat_id += 1
+    
+    df = pd.DataFrame(seats, columns=[
         "Seat_ID", 
         "Table_ID", 
         "Room_ID", 
-        "Brightness", 
+        "Cleanliness", 
         "Noise", 
         "Seat_Available", 
         "Table_Available", 
         "Room_Available"
     ])
     
-    df.to_csv(path, index=False)    
-    
     return df
 
-def generate_students(num_groups,
+
+def generate_students(num_students=2000,
+                      num_groups=None,
                       group_size_range=(1, 10),
-                      brightness_mean=50,
-                      brightness_sd=15,
+                      cleanliness_mean=50,
+                      cleanliness_sd=15,
                       noise_mean=50,
-                      noise_sd=15,
-                      flexibility_range=(1, 5),
-                      ):
+                      noise_sd=15):
     """
-    Generates a students DataFrame with columns:
-        Student_ID, Group_ID, Brightness, Noise, Flexibility
+    Generate students with normally distributed random attributes.
     
-    Attributes:
-        Brightness: Normal(mean, sd), clipped to [0,100], int.
-        Noise: Normal(mean, sd), clipped to [0,100], int. 
-        Whiteboards: random integer in whiteboards_range per student.
-        Flexibility: random integer in flexibility_range per student.
-
-    Input:
-        num_groups: number of groups
-        group_size_range: tuple (min_size, max_size) for each group's size, uniformly distributed.
-
-    Output: 
-        df: dataframe containing the students table.
+    Args:
+        num_students: Total number of students to generate
+        num_groups: Number of groups (if None, calculated based on average group size)
+        group_size_range: Range for group sizes
+        cleanliness_mean: Mean for cleanliness preference
+        cleanliness_sd: Standard deviation for cleanliness
+        noise_mean: Mean for noise tolerance
+        noise_sd: Standard deviation for noise
+        
+    Returns:
+        DataFrame with student data
     """
+    if num_groups is None:
+        avg_group_size = (group_size_range[0] + group_size_range[1]) / 2
+        num_groups = max(1, int(num_students / avg_group_size))
+    
     students = []
     student_id = 1
-    sizes = np.random.randint(group_size_range[0],
-                              group_size_range[1] + 1,
-                              size=num_groups)
-
-    for group_id, group_size in enumerate(sizes, start=1):
+    
+    # Generate group sizes
+    group_sizes = np.random.randint(group_size_range[0], group_size_range[1] + 1, size=num_groups)
+    
+    # Adjust group sizes to match total students
+    total_assigned = sum(group_sizes)
+    if total_assigned != num_students:
+        diff = num_students - total_assigned
+        # Distribute the difference across groups
+        for i in range(abs(diff)):
+            group_idx = i % num_groups
+            if diff > 0:
+                group_sizes[group_idx] += 1
+            else:
+                group_sizes[group_idx] = max(1, group_sizes[group_idx] - 1)
+    
+    for group_id, group_size in enumerate(group_sizes, start=1):
         for _ in range(group_size):
-            brightness = int(np.clip(np.random.normal(brightness_mean, brightness_sd), 0, 100))
-            noise = int(np.clip(np.random.normal(noise_mean, noise_sd), 0, 100))
-            flex = np.random.randint(flexibility_range[0], flexibility_range[1] + 1)
+            if student_id > num_students:
+                break
+                
+            # Generate normally distributed attributes
+            cleanliness = int(np.clip(np.random.normal(cleanliness_mean, cleanliness_sd), 1, 100))
+            noise = int(np.clip(np.random.normal(noise_mean, noise_sd), 1, 100))
+            
             students.append({
-                "Student_ID":   f"S{student_id:03d}",
-                "Group_ID":     group_id,
-                "Brightness":   brightness,
-                "Noise":        noise,
-                "Flexibility":  flex
+                "Student_ID": student_id,
+                "Group_ID": group_id,
+                "Cleanliness": cleanliness,
+                "Noise": noise
             })
             student_id += 1
-
+    
     df = pd.DataFrame(students, columns=[
         "Student_ID", 
         "Group_ID",
-        "Brightness", 
-        "Noise",
-        "Flexibility"
+        "Cleanliness", 
+        "Noise"
     ])
     
     return df
 
-def students_to_csv(students, path="data/students.csv"):
+
+def save_to_csv(seats_df=None, students_df=None, 
+                seats_path="seats.csv", 
+                students_path="students.csv"):
     """
-    Save the students DataFrame to CSV with columns:
-        Student_ID, Group_ID, Brightness, Noise, Whiteboards, Flexibility
-    """
-    cols = [
-        "Student_ID", 
-        "Group_ID",
-        "Brightness", 
-        "Noise",
-        "Flexibility"
-    ]
-    students.to_csv(path, columns=cols, index=False)
-    print(f"Wrote {len(students)} students to {path}")
+    Save DataFrames to CSV files.
     
+    Args:
+        seats_df: DataFrame containing seat data
+        students_df: DataFrame containing student data
+        seats_path: Path for seats CSV file
+        students_path: Path for students CSV file
+    """
+    if seats_df is not None:
+        seats_df.to_csv(seats_path, index=False)
+        print(f"Generated {len(seats_df)} seats and saved to {seats_path}")
+        print(f"  Tables: {seats_df['Table_ID'].nunique()}, Rooms: {seats_df['Room_ID'].nunique()}")
+        print(f"  Cleanliness: mean={seats_df['Cleanliness'].mean():.1f}, std={seats_df['Cleanliness'].std():.1f}")
+        print(f"  Noise: mean={seats_df['Noise'].mean():.1f}, std={seats_df['Noise'].std():.1f}")
+    
+    if students_df is not None:
+        students_df.to_csv(students_path, index=False)
+        print(f"Generated {len(students_df)} students and saved to {students_path}")
+        print(f"  Groups: {students_df['Group_ID'].nunique()}")
+        print(f"  Cleanliness: mean={students_df['Cleanliness'].mean():.1f}, std={students_df['Cleanliness'].std():.1f}")
+        print(f"  Noise: mean={students_df['Noise'].mean():.1f}, std={students_df['Noise'].std():.1f}")
+        group_sizes = students_df.groupby('Group_ID').size()
+        print(f"  Group sizes: min={group_sizes.min()}, max={group_sizes.max()}, avg={group_sizes.mean():.1f}")
+
+
 if __name__ == "__main__":
-    layout = generate_layout((3, 2, 5, 2, 5))
-    attrs = generate_attribute_layout(
-        layout,
-        brightness_range=(80, 20),
-        brightness_sd=3,
-        noise_sd=10
-    )
-    display_attribute_layout(attrs)
-    attributes_to_csv(attrs)
+    # Set random seed for reproducible results (optional)
+    np.random.seed(42)
     
-    df_students = generate_students(
-        num_groups=200,
-        brightness_mean=60,
-        brightness_sd=20,
-        noise_mean=40,
-        noise_sd=10,
-        flexibility_range=(1,5)
+    # Get user input for number of rows
+    try:
+        num_seats = int(input("Enter number of seats to generate (default 2000): ") or 2000)
+        num_students = int(input("Enter number of students to generate (default 2000): ") or 2000)
+    except ValueError:
+        print("Using default values: 2000 seats, 2000 students")
+        num_seats = 2000
+        num_students = 2000
+    
+    print(f"\nGenerating {num_seats} seats and {num_students} students...")
+    
+    # Generate seats with uniformly distributed attributes
+    seats_df = generate_seats(
+        num_seats=num_seats,
+        cleanliness_min=1,
+        cleanliness_max=100,
+        noise_min=1,
+        noise_max=100
     )
-    print(df_students.head())
-    students_to_csv(df_students)
+    
+    # Generate students with normally distributed attributes
+    students_df = generate_students(
+        num_students=num_students,
+        cleanliness_mean=60,  # Students prefer cleaner seats
+        cleanliness_sd=15,
+        noise_mean=40,        # Students prefer quieter environments
+        noise_sd=15
+    )
+    
+    # Save to CSV files
+    save_to_csv(seats_df, students_df)
+    
+    print("\nData generation complete!")
