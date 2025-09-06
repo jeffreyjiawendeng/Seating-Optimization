@@ -125,7 +125,7 @@ def run_experiments():
     Creates plots showing objective value and execution time vs dataset size for both Q1 and Q2.
     Uses sequential loading from groups.csv: Set 1, Sets 1+2, Sets 1+2+3, Sets 1+2+3+4
     
-    UPDATED: Works with actual groups.csv structure (368 groups with varying sizes)
+    MODIFIED: For quad graph mode, seats are consumed during each trial and reset between trials and modes.
     """
     # Dataset sizes to test (number of seats and students)
     seat_counts = [500, 1000, 1500, 2000]
@@ -134,15 +134,6 @@ def run_experiments():
     print("Loading groups data...")
     groups_df = pd.read_csv('src/groups.csv')
     print(f"Loaded {len(groups_df)} students from groups.csv")
-    
-    # Verify the actual structure
-    unique_groups = groups_df['Group_ID'].nunique()
-    print(f"Found {unique_groups} unique groups")
-    print(f"Group size distribution:")
-    group_sizes = groups_df.groupby('Group_ID').size()
-    print(f"  Min group size: {group_sizes.min()}")
-    print(f"  Max group size: {group_sizes.max()}")
-    print(f"  Average group size: {group_sizes.mean():.1f}")
     
     # Run experiments for both query types
     for query_type in ['Q1', 'Q2']:
@@ -185,8 +176,6 @@ def run_experiments():
             print(f"  Using seats 1-{seat_count} and groups from sets: {list(students_sample['Set_ID'].unique())}")
             print(f"  Seat range: {seats_sample['Seat_ID'].min()}-{seats_sample['Seat_ID'].max()}")
             print(f"  Group range: {students_sample['Group_ID'].min()}-{students_sample['Group_ID'].max()}")
-            print(f"  Total students: {len(students_sample)}")
-            print(f"  Total groups: {students_sample['Group_ID'].nunique()}")
             
             # Get all groups and their parameters from students data
             # Sort by Group_ID to ensure consistent order across algorithms and trials
@@ -206,7 +195,7 @@ def run_experiments():
             else:  # Q2
                 w1, w2 = 1.0, 0.3
             
-            # UPDATED: Test each algorithm separately with seat consumption within each trial
+            # MODIFIED: Test each algorithm separately with seat consumption within each trial
             algorithms = ['greedy', 'ilp', 'sketchrefine']
             
             for algorithm in algorithms:
@@ -253,7 +242,7 @@ def run_experiments():
                                     'success': True
                                 })
                                 
-                                # Mark assigned seats as unavailable for subsequent groups in this trial
+                                # MODIFIED: Mark assigned seats as unavailable for subsequent groups in this trial
                                 for seat in greedy_result:
                                     seat_mask = (algorithm_seats['Seat_ID'] == seat['Seat_ID'])
                                     algorithm_seats.loc[seat_mask, 'Seat_Available'] = False
@@ -321,7 +310,7 @@ def run_experiments():
                                         'success': True
                                     })
                                     
-                                    # Mark assigned seats as unavailable for subsequent groups in this trial
+                                    # MODIFIED: Mark assigned seats as unavailable for subsequent groups in this trial
                                     for idx in picked:
                                         seat_id = available_seats.iloc[idx]['Seat_ID']
                                         seat_mask = (algorithm_seats['Seat_ID'] == seat_id)
@@ -373,7 +362,7 @@ def run_experiments():
                                     'success': True
                                 })
                                 
-                                # Mark assigned seats as unavailable for subsequent groups in this trial
+                                # MODIFIED: Mark assigned seats as unavailable for subsequent groups in this trial
                                 for seat in sketchrefine_result['seats']:
                                     seat_mask = (algorithm_seats['Seat_ID'] == seat['Seat_ID'])
                                     algorithm_seats.loc[seat_mask, 'Seat_Available'] = False
@@ -575,7 +564,7 @@ def run_experiments():
         
         plt.xlabel('Group Number')
         plt.ylabel(f'Objective Value ({obj_label})')
-        plt.title(f'{query_type}: Per-Group Objective Values (All {len(per_group_results["group_ids"])} Groups)')
+        plt.title(f'{query_type}: Per-Group Objective Values (All 2000 Students)')
         plt.legend()
         plt.grid(True, alpha=0.3)
         
@@ -597,10 +586,10 @@ def run_experiments():
 
 def run_per_group_experiment(query_type):
     """
-    Run experiments on all groups from groups.csv, tracking objective value per group for all three algorithms.
+    Run experiments on all 2000 students, tracking objective value per group for all three algorithms.
     
-    UPDATED: Works with actual groups.csv structure (368 groups with varying sizes)
-    All algorithms process the same groups in the same order.
+    FIXED: All algorithms now process the same groups in the same order.
+    Each algorithm gets fresh seats but processes the same group sequence.
     
     Args:
         query_type (str): 'Q1' or 'Q2' for different objectives
@@ -616,18 +605,9 @@ def run_per_group_experiment(query_type):
     # Load the full dataset
     seats_df, students_df = load_experiment_dataset()
     
-    # Load groups from groups.csv (the actual dataset structure)
-    groups_df = pd.read_csv('src/groups.csv')
-    print(f"Loaded {len(groups_df)} students from groups.csv")
-    
-    # Get all groups and their parameters from groups data
-    groups = groups_df.groupby('Group_ID')
+    # Get all groups and their parameters from students data
+    groups = students_df.groupby('Group_ID')
     group_list = sorted(groups, key=lambda x: x[0])
-    
-    print(f"Found {len(group_list)} groups with varying sizes")
-    group_sizes = [len(group_data) for _, group_data in group_list]
-    print(f"Group size range: {min(group_sizes)}-{max(group_sizes)} students")
-    print(f"Average group size: {np.mean(group_sizes):.1f} students")
     
     # Set weights based on query type
     if query_type == 'Q1':
@@ -642,7 +622,7 @@ def run_per_group_experiment(query_type):
     
     print(f"Processing {len(group_list)} groups...")
     
-    # UPDATED: Test each algorithm separately with fresh seats for each algorithm
+    # FIXED: Test each algorithm separately with fresh seats for each algorithm
     algorithms = ['greedy', 'ilp', 'sketchrefine']
     
     for algorithm in algorithms:
