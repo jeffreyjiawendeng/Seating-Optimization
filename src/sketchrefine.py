@@ -7,176 +7,341 @@ from ilp import solve_ilp, solve_ilp_weighted
 
 def load_data():
     """Load seats and students data from CSV files."""
-    seats_df = pd.read_csv("src/seats.csv")
-    students_df = pd.read_csv("src/students.csv")
+    seats_df = pd.read_csv("seats.csv")
+    students_df = pd.read_csv("students.csv")
     return seats_df, students_df
 
 
-def create_meta_tables(seats_df):
+def create_partitions(seats_df, max_partition_size=50):
     """
-    Create meta tables containing average attributes for each table.
+    Create partitions (tables) that serve as groups for SketchRefine.
+    Each partition contains seats from the same table, with average attributes as representatives.
     
+    Args:
+        seats_df: DataFrame with all seats
+        max_partition_size: Maximum size for each partition
+        
     Returns:
-        meta_tables_df: DataFrame with table-level aggregated statistics
-        table_to_seats: dict mapping table_id to list of seat indices
+        partitions: List of partition dictionaries
+        partition_to_seats: dict mapping partition_id to list of seat indices
     """
-    meta_tables = []
-    table_to_seats = {}
+    partitions = []
+    partition_to_seats = {}
+    partition_id = 0
     
-    # Group by table to calculate meta-table statistics
+    # Group by table to create partitions
     for table_id, group in seats_df.groupby('Table_ID'):
         available_seats = group[group['Seat_Available'] == True]
         
         if len(available_seats) > 0:
-            # Calculate meta-table attributes
+            # Calculate representative attributes for this partition
             avg_brightness = available_seats['Brightness'].mean()
             avg_noise = available_seats['Noise'].mean()
             room_id = group.iloc[0]['Room_ID']
             total_seats = len(available_seats)
             
-            meta_tables.append({
-                'Table_ID': table_id,
-                'Room_ID': room_id,
-                'Avg_Brightness': avg_brightness,
-                'Avg_Noise': avg_noise,
-                'Available_Seats': total_seats
+            partitions.append({
+                'partition_id': partition_id,
+                'table_id': table_id,
+                'room_id': room_id,
+                'avg_brightness': avg_brightness,
+                'avg_noise': avg_noise,
+                'available_seats': total_seats,
+                'refined': False  # Track if this partition has been refined
             })
             
-            # Store mapping from table_id to seat indices
-            table_to_seats[table_id] = available_seats.index.tolist()
+            # Store mapping from partition_id to seat indices
+            partition_to_seats[partition_id] = available_seats.index.tolist()
+            partition_id += 1
     
-    meta_tables_df = pd.DataFrame(meta_tables)
-    return meta_tables_df, table_to_seats
+    return partitions, partition_to_seats
 
 
-def phase1_meta_table_query(meta_tables_df, group_size, brightness_threshold, query_type):
+def initial_sketch(partitions, group_size, brightness_threshold, query_type):
     """
-    Phase 1: Package query on meta-tables to find suitable tables.
+    Initial SKETCH: Run package query on representative tuples (average table attributes).
+    This gives us an initial approximate solution.
     
     Args:
-        meta_tables_df: DataFrame with meta-table statistics
+        partitions: List of partition dictionaries
         group_size: Size of the group to place
         brightness_threshold: Minimum brightness requirement
         query_type: 'Q1' or 'Q2' for different objectives
         
     Returns:
-        selected_tables: List of table IDs that passed the meta-table query
+        selected_partitions: List of (partition_id, count) tuples
     """
-    if len(meta_tables_df) == 0:
+    if len(partitions) == 0:
         return []
     
-    # Get actual table capacities (number of available seats per table)
-    table_capacities = meta_tables_df['Available_Seats'].values
+    # Get partition capacities
+    partition_capacities = [p['available_seats'] for p in partitions]
     
-    # Check if we have enough total capacity across all tables
-    total_available_seats = sum(table_capacities)
+    # Check if we have enough total capacity
+    total_available_seats = sum(partition_capacities)
     if total_available_seats < group_size:
-        return []  # Not enough seats available across all tables
+        return []
     
-    # Use the maximum table capacity as the rep value for ILP
-    max_capacity = max(table_capacities)
+    # Use maximum capacity as rep value for ILP
+    max_capacity = max(partition_capacities)
     
-    # Prepare data matrix for ILP: [Avg_Brightness, Avg_Noise, Room_ID, Table_ID]
-    data_matrix = meta_tables_df[['Avg_Brightness', 'Avg_Noise', 'Room_ID', 'Table_ID']].values
+    # Prepare data matrix: [avg_brightness, avg_noise, room_id, partition_id]
+    data_matrix = np.array([
+        [p['avg_brightness'], p['avg_noise'], p['room_id'], p['partition_id']]
+        for p in partitions
+    ])
     
-    # Set up constraints and objectives based on query type
+    # Set up constraints and objectives
     if query_type == 'Q1':
-        # Q1: minimize AVG(noise)
         picked, counts = solve_ilp(
             sub=data_matrix,
-            size_=group_size,  # We want to select exactly group_size seats
-            rep=max_capacity,  # Use maximum capacity as repetition limit
+            size_=group_size,
+            rep=max_capacity,
             obj={'attr': 1, 'pref': 'MIN'},  # Minimize noise
-            cons=[{'attr': 0, 'pref': 'MAX', 'bound': brightness_threshold * group_size}],  # Brightness constraint
+            cons=[{'attr': 0, 'pref': 'MAX', 'bound': brightness_threshold * group_size}],
             verbose=False
         )
     else:
-        # Q2: minimize AVG(noise) - 0.3*AVG(brightness)
         picked, counts = solve_ilp_weighted(
             sub=data_matrix,
             size_=group_size,
-            rep=max_capacity,  # Use maximum capacity as repetition limit
+            rep=max_capacity,
             weights=[-0.3, 1.0, 0, 0],  # Negative weight for brightness (maximize), positive for noise (minimize)
             cons=[{'attr': 0, 'pref': 'MAX', 'bound': brightness_threshold * group_size}],
             verbose=False
         )
     
     if picked:
-        # Extract selected table IDs with their selection counts
-        selected_table_ids = []
+        # Extract selected partitions with their counts
+        selected_partitions = []
         for i in picked:
-            table_id = int(data_matrix[i][3])  # Table_ID is at index 3
-            # Get the actual selection count, but cap it at the table's capacity
-            selection_count = min(counts[i] if i < len(counts) else 1, table_capacities[i])
-            selected_table_ids.extend([table_id] * selection_count)
+            partition_id = int(data_matrix[i][3])
+            count = min(counts[i] if i < len(counts) else 1, partition_capacities[i])
+            selected_partitions.append((partition_id, count))
         
-        # Ensure we don't exceed the group size
-        if len(selected_table_ids) > group_size:
-            selected_table_ids = selected_table_ids[:group_size]
+        # Ensure we don't exceed group size
+        total_selected = sum(count for _, count in selected_partitions)
+        if total_selected > group_size:
+            # Trim excess selections
+            excess = total_selected - group_size
+            for i in range(len(selected_partitions) - 1, -1, -1):
+                if excess <= 0:
+                    break
+                partition_id, count = selected_partitions[i]
+                reduction = min(excess, count)
+                selected_partitions[i] = (partition_id, count - reduction)
+                excess -= reduction
         
-        return selected_table_ids
+        return selected_partitions
     else:
         return []
 
 
-def phase2_seat_query(seats_df, table_to_seats, selected_tables, group_size, brightness_threshold, query_type):
+def refine_partition(seats_df, partition_to_seats, partitions, selected_partitions, 
+                    partition_id_to_refine, group_size, brightness_threshold, query_type):
     """
-    Phase 2: Package query on actual seats from selected tables.
+    Refine a specific partition by replacing its representative with actual seats.
     
     Args:
         seats_df: DataFrame with all seats
-        table_to_seats: dict mapping table_id to seat indices
-        selected_tables: List of table IDs from phase 1
+        partition_to_seats: dict mapping partition_id to seat indices
+        partitions: List of partition dictionaries
+        selected_partitions: Current selection of (partition_id, count) tuples
+        partition_id_to_refine: ID of partition to refine
         group_size: Size of the group to place
         brightness_threshold: Minimum brightness requirement
         query_type: 'Q1' or 'Q2' for different objectives
         
     Returns:
-        selected_seats: List of seat dictionaries or None if no solution
+        refined_selection: Updated selection with actual seats from refined partition
     """
-    if not selected_tables:
-        return None
+    # Find the partition to refine
+    partition_to_refine = None
+    for p in partitions:
+        if p['partition_id'] == partition_id_to_refine:
+            partition_to_refine = p
+            break
     
-    # Collect all available seats from selected tables
-    available_seat_indices = []
-    for table_id in selected_tables:
-        if table_id in table_to_seats:
-            available_seat_indices.extend(table_to_seats[table_id])
+    if not partition_to_refine:
+        return selected_partitions
     
-    if len(available_seat_indices) < group_size:
-        return None
+    # Get seats from the partition to refine
+    seat_indices = partition_to_seats[partition_id_to_refine]
+    partition_seats = seats_df.iloc[seat_indices]
     
-    # Get the actual seat data
-    available_seats = seats_df.iloc[available_seat_indices]
+    # Create a mixed dataset: actual seats from partition_to_refine + representatives from others
+    mixed_seats = []
+    seat_to_partition_mapping = {}
     
-    # Prepare data matrix for ILP: [Brightness, Noise, Room_ID, Table_ID]
-    data_matrix = available_seats[['Brightness', 'Noise', 'Room_ID', 'Table_ID']].values
+    # Add actual seats from the partition being refined
+    for idx, seat in partition_seats.iterrows():
+        mixed_seats.append({
+            'Brightness': seat['Brightness'],
+            'Noise': seat['Noise'],
+            'Room_ID': seat['Room_ID'],
+            'Table_ID': seat['Table_ID'],
+            'Seat_ID': seat['Seat_ID'],
+            'is_representative': False,
+            'partition_id': partition_id_to_refine
+        })
+        seat_to_partition_mapping[len(mixed_seats) - 1] = partition_id_to_refine
     
-    # Set up constraints and objectives based on query type
+    # Add representative tuples from other partitions
+    for partition_id, count in selected_partitions:
+        if partition_id != partition_id_to_refine:
+            partition = next(p for p in partitions if p['partition_id'] == partition_id)
+            # Add representative tuple 'count' times
+            for _ in range(count):
+                mixed_seats.append({
+                    'Brightness': partition['avg_brightness'],
+                    'Noise': partition['avg_noise'],
+                    'Room_ID': partition['room_id'],
+                    'Table_ID': partition['table_id'],
+                    'Seat_ID': f"REP_{partition_id}",
+                    'is_representative': True,
+                    'partition_id': partition_id
+                })
+                seat_to_partition_mapping[len(mixed_seats) - 1] = partition_id
+    
+    # Convert to DataFrame for ILP
+    mixed_seats_df = pd.DataFrame(mixed_seats)
+    data_matrix = mixed_seats_df[['Brightness', 'Noise', 'Room_ID', 'Table_ID']].values
+    
+    # Run ILP on mixed dataset
     if query_type == 'Q1':
-        # Q1: minimize AVG(noise)
         picked, counts = solve_ilp(
             sub=data_matrix,
             size_=group_size,
-            rep=1,  # Each seat can only be selected once
-            obj={'attr': 1, 'pref': 'MIN'},  # Minimize noise
-            cons=[{'attr': 0, 'pref': 'MAX', 'bound': brightness_threshold * group_size}],  # Brightness constraint
+            rep=1,
+            obj={'attr': 1, 'pref': 'MIN'},
+            cons=[{'attr': 0, 'pref': 'MAX', 'bound': brightness_threshold * group_size}],
             verbose=False
         )
     else:
-        # Q2: minimize AVG(noise) - 0.3*AVG(brightness)
         picked, counts = solve_ilp_weighted(
             sub=data_matrix,
             size_=group_size,
             rep=1,
-            weights=[-0.3, 1.0, 0, 0],  # Negative weight for brightness (maximize), positive for noise (minimize)
+            weights=[-0.3, 1.0, 0, 0],
             cons=[{'attr': 0, 'pref': 'MAX', 'bound': brightness_threshold * group_size}],
             verbose=False
         )
     
     if picked:
-        # Extract selected seats
-        selected_seats = available_seats.iloc[picked].to_dict('records')
+        # Convert back to partition-based selection
+        refined_selection = defaultdict(int)
+        
+        for i in picked:
+            partition_id = seat_to_partition_mapping[i]
+            refined_selection[partition_id] += 1
+        
+        # Convert to list format
+        return [(pid, count) for pid, count in refined_selection.items()]
+    else:
+        return selected_partitions
+
+
+def sequential_refinement(seats_df, partition_to_seats, partitions, initial_selection, 
+                         group_size, brightness_threshold, query_type):
+    """
+    Sequentially refine each partition one by one.
+    
+    Args:
+        seats_df: DataFrame with all seats
+        partition_to_seats: dict mapping partition_id to seat indices
+        partitions: List of partition dictionaries
+        initial_selection: Initial selection from sketch stage
+        group_size: Size of the group to place
+        brightness_threshold: Minimum brightness requirement
+        query_type: 'Q1' or 'Q2' for different objectives
+        
+    Returns:
+        final_selection: Final refined selection
+    """
+    current_selection = initial_selection.copy()
+    
+    # Refine each partition sequentially
+    for partition_id, count in initial_selection:
+        if count > 0:  # Only refine partitions that were selected
+            print(f"    Refining partition {partition_id} (Table {partitions[partition_id]['table_id']})...")
+            
+            # Refine this partition
+            refined_selection = refine_partition(
+                seats_df, partition_to_seats, partitions, current_selection,
+                partition_id, group_size, brightness_threshold, query_type
+            )
+            
+            # Update current selection
+            current_selection = refined_selection
+            
+            # Mark partition as refined
+            for p in partitions:
+                if p['partition_id'] == partition_id:
+                    p['refined'] = True
+                    break
+    
+    return current_selection
+
+
+def convert_to_actual_seats(seats_df, partition_to_seats, partitions, final_selection, 
+                           group_size, brightness_threshold, query_type):
+    """
+    Convert final partition-based selection to actual seat assignments.
+    
+    Args:
+        seats_df: DataFrame with all seats
+        partition_to_seats: dict mapping partition_id to seat indices
+        partitions: List of partition dictionaries
+        final_selection: Final selection of (partition_id, count) tuples
+        group_size: Size of the group to place
+        brightness_threshold: Minimum brightness requirement
+        query_type: 'Q1' or 'Q2' for different objectives
+        
+    Returns:
+        selected_seats: List of actual seat dictionaries
+    """
+    # Collect all available seats from selected partitions
+    available_seats_list = []
+    seat_to_partition_mapping = {}
+    
+    for partition_id, count_needed in final_selection:
+        if partition_id in partition_to_seats:
+            seat_indices = partition_to_seats[partition_id]
+            table_seats = seats_df.iloc[seat_indices]
+            
+            for idx, seat in table_seats.iterrows():
+                available_seats_list.append(seat)
+                seat_to_partition_mapping[len(available_seats_list) - 1] = partition_id
+    
+    if len(available_seats_list) < group_size:
+        return None
+    
+    # Convert to DataFrame
+    available_seats_df = pd.DataFrame(available_seats_list)
+    data_matrix = available_seats_df[['Brightness', 'Noise', 'Room_ID', 'Table_ID']].values
+    
+    # Run final ILP to select actual seats
+    if query_type == 'Q1':
+        picked, counts = solve_ilp(
+            sub=data_matrix,
+            size_=group_size,
+            rep=1,
+            obj={'attr': 1, 'pref': 'MIN'},
+            cons=[{'attr': 0, 'pref': 'MAX', 'bound': brightness_threshold * group_size}],
+            verbose=False
+        )
+    else:
+        picked, counts = solve_ilp_weighted(
+            sub=data_matrix,
+            size_=group_size,
+            rep=1,
+            weights=[-0.3, 1.0, 0, 0],
+            cons=[{'attr': 0, 'pref': 'MAX', 'bound': brightness_threshold * group_size}],
+            verbose=False
+        )
+    
+    if picked:
+        selected_seats = available_seats_df.iloc[picked].to_dict('records')
         return selected_seats
     else:
         return None
@@ -184,7 +349,12 @@ def phase2_seat_query(seats_df, table_to_seats, selected_tables, group_size, bri
 
 def sketchrefine_seat_selection(group_size, brightness_threshold, seats_df, query_type):
     """
-    SketchRefine Algorithm: Two-phase package query approach.
+    SketchRefine Algorithm: Sequential refinement approach.
+    
+    1. Create partitions (tables) with representative tuples
+    2. Initial SKETCH: Run query on representatives
+    3. Sequential REFINE: Refine each partition one by one
+    4. Final conversion: Convert to actual seat assignments
     
     Args:
         group_size (int): Size of the group (m)
@@ -193,50 +363,73 @@ def sketchrefine_seat_selection(group_size, brightness_threshold, seats_df, quer
         query_type (str): 'Q1' or 'Q2' for different objectives
         
     Returns:
-        list: Seat set P for the group, or None if infeasible
+        dict: Result containing seats, execution time, and success status
     """
     start_time = time.time()
     
-    # Phase 1: Create meta-tables and run package query
-    meta_tables_df, table_to_seats = create_meta_tables(seats_df)
+    # Step 1: Create partitions with representative tuples
+    partitions, partition_to_seats = create_partitions(seats_df)
     
-    if len(meta_tables_df) == 0:
-        return None
+    if len(partitions) == 0:
+        return {
+            'seats': None,
+            'execution_time_ms': (time.time() - start_time) * 1000,
+            'selected_tables': [],
+            'success': False,
+            'refinement_steps': 0
+        }
     
-    # Phase 1: Package query on meta-tables
-    selected_tables = phase1_meta_table_query(
-        meta_tables_df, 
-        group_size, 
-        brightness_threshold, 
-        query_type
+    # Step 2: Initial SKETCH - run query on representatives
+    print(f"    Initial SKETCH: Running query on {len(partitions)} representative tuples...")
+    initial_selection = initial_sketch(partitions, group_size, brightness_threshold, query_type)
+    
+    if not initial_selection:
+        return {
+            'seats': None,
+            'execution_time_ms': (time.time() - start_time) * 1000,
+            'selected_tables': [],
+            'success': False,
+            'refinement_steps': 0
+        }
+    
+    print(f"    Initial selection: {initial_selection}")
+    
+    # Step 3: Sequential REFINE - refine each partition one by one
+    print(f"    Sequential REFINE: Refining {len(initial_selection)} partitions...")
+    final_selection = sequential_refinement(
+        seats_df, partition_to_seats, partitions, initial_selection,
+        group_size, brightness_threshold, query_type
     )
     
-    if not selected_tables:
-        return None
+    print(f"    Final selection: {final_selection}")
     
-    # Phase 2: Package query on actual seats from selected tables
-    selected_seats = phase2_seat_query(
-        seats_df,
-        table_to_seats,
-        selected_tables,
-        group_size,
-        brightness_threshold,
-        query_type
+    # Step 4: Convert to actual seat assignments
+    print(f"    Converting to actual seat assignments...")
+    selected_seats = convert_to_actual_seats(
+        seats_df, partition_to_seats, partitions, final_selection,
+        group_size, brightness_threshold, query_type
     )
     
-    execution_time = (time.time() - start_time) * 1000  # Convert to milliseconds
+    execution_time = (time.time() - start_time) * 1000
+    
+    # Extract table IDs for compatibility
+    selected_tables = []
+    for partition_id, count in final_selection:
+        table_id = next(p['table_id'] for p in partitions if p['partition_id'] == partition_id)
+        selected_tables.extend([table_id] * count)
     
     return {
         'seats': selected_seats,
         'execution_time_ms': execution_time,
         'selected_tables': selected_tables,
-        'success': selected_seats is not None
+        'success': selected_seats is not None,
+        'refinement_steps': len(initial_selection)
     }
 
 
 def demo_sketchrefine():
     """
-    Demonstrate the SketchRefine algorithm with multiple groups.
+    Demonstrate the SketchRefine algorithm with sequential refinement.
     """
     print("Loading data...")
     seats_df, students_df = load_data()
@@ -247,7 +440,7 @@ def demo_sketchrefine():
     failed_placements = 0
     
     import random
-    g = 100
+    g = 10  # Test with more groups to see refinement process
     for group_id in range(1, g+1):
         print(f"\n{'='*50}")
         print(f"PROCESSING GROUP {group_id}")
@@ -278,7 +471,7 @@ def demo_sketchrefine():
         total_available = seats_df['Seat_Available'].sum()
         print(f"- Available seats: {total_available}")
 
-        # Run SketchRefine algorithm
+        # Run SketchRefine algorithm with sequential refinement
         result = sketchrefine_seat_selection(
             group_size=group_size,
             brightness_threshold=brightness_threshold,
@@ -290,16 +483,20 @@ def demo_sketchrefine():
             successful_placements += 1
             print(f"\n✓ Successfully placed Group {group_id}!")
             print(f"  - Execution time: {result['execution_time_ms']:.2f}ms")
-            print(f"  - Tables selected in Phase 1: {result['selected_tables']}")
+            print(f"  - Refinement steps: {result['refinement_steps']}")
+            print(f"  - Tables selected: {result['selected_tables']}")
 
             # Show seat assignments
             tables_used = set()
+            seat_ids_used = set()
             for seat in result['seats']:
                 tables_used.add(seat['Table_ID'])
+                seat_ids_used.add(seat['Seat_ID'])
                 print(f"  - Seat {seat['Seat_ID']} (Table {seat['Table_ID']}, Room {seat['Room_ID']}): "
                       f"Brightness={seat['Brightness']}, Noise={seat['Noise']}")
 
             print(f"  - Tables used: {sorted(tables_used)}")
+            print(f"  - Unique seats used: {len(seat_ids_used)}")
 
             # Calculate group satisfaction
             avg_brightness = np.mean([seat['Brightness'] for seat in result['seats']])
@@ -319,6 +516,7 @@ def demo_sketchrefine():
             print(f"\n✗ Failed to place Group {group_id}")
             if result:
                 print(f"  - Execution time: {result['execution_time_ms']:.2f}ms")
+                print(f"  - Refinement steps attempted: {result['refinement_steps']}")
             print(f"  - No feasible seat assignment found")
 
         # Show remaining capacity
