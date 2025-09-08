@@ -55,7 +55,7 @@ def generate_attribute_layout(layout, brightness_range=(80, 20), brightness_sd=3
         brightness_sd: standard deviation for the brightness level, int.
         noise_sd: standard deviation for the noise level, int.
         
-    Ouutput:
+    Output:
         attributes: 6D tensor of seats and their attributes.
     """ 
     # Unpack and set dimension variables
