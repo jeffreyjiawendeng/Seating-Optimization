@@ -100,3 +100,10 @@ calculate_package_query()
 +online
 +takes less time
 +approximately optimal
+
+# Division of Labor
+Nathan: data gen + global?
+Jeffrey: SKETCHREFINE
+Sammam: Greedy
+
+For tomorrow 7PM
