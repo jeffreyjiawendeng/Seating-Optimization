@@ -199,4 +199,54 @@ def ensure_global_feasible(
         cap -= step
     # If still infeasible, return last attempt status
     return g_adj, sol
+
+
+def global_ilp_solver(
+    seats_df: pd.DataFrame, 
+    groups_df: pd.DataFrame, 
+    lam_pair: float = 0.3, 
+    dmax_pairs: int = 3,
+    time_limit: int = 300
+) -> Dict:
+    """
+    Wrapper for global ILP optimization with proper return format.
+    Returns dict with status, objective, runtime_ms, and assignments.
+    """
+    import time
+    start_time = time.time()
+    
+    try:
+        result = solve_global_pair_ilp(
+            seats_df=seats_df, 
+            groups_df=groups_df, 
+            lam_pair=lam_pair, 
+            dmax_pairs=dmax_pairs,
+            time_limit_sec=time_limit
+        )
+        
+        runtime_ms = (time.time() - start_time) * 1000
+        
+        # Convert status to standard format
+        if result["status"] == "Optimal":
+            status = "optimal"
+        elif result["status"] == "Feasible":
+            status = "feasible"
+        else:
+            status = "infeasible"
+        
+        return {
+            'status': status,
+            'objective': result.get('objective', float('inf')),
+            'runtime_ms': runtime_ms,
+            'assignments': result.get('assignments', [])
+        }
+        
+    except Exception as e:
+        return {
+            'status': 'error',
+            'objective': float('inf'),
+            'runtime_ms': (time.time() - start_time) * 1000,
+            'assignments': [],
+            'error': str(e)
+        }
 # ---------------------------------------------------------------------

@@ -121,3 +121,42 @@ def generate_groups_from_students(
     students_df = pd.DataFrame(students_rows)
     groups_df = pd.DataFrame(groups_rows)
     return students_df, groups_df
+
+
+def generate_groups(
+    n_groups: int = 15,
+    min_size: int = 2,
+    max_size: int = 6,
+    brightness_mean: float = 60,
+    brightness_std: float = 20,
+    seed: int = 123,
+) -> pd.DataFrame:
+    """
+    Generate a simple groups DataFrame for experiments.
+    
+    Args:
+        n_groups: Number of groups to generate
+        min_size: Minimum group size
+        max_size: Maximum group size  
+        brightness_mean: Mean brightness requirement
+        brightness_std: Std dev of brightness requirements
+        seed: Random seed
+        
+    Returns:
+        DataFrame with columns: Group_ID, Group_Size, Brightness_Min, Objective
+    """
+    rng = np.random.default_rng(seed)
+    
+    groups = []
+    for i in range(1, n_groups + 1):
+        group_size = int(rng.integers(min_size, max_size + 1))
+        brightness_min = float(np.clip(rng.normal(brightness_mean, brightness_std), 10, 95))
+        
+        groups.append({
+            "Group_ID": i,
+            "Group_Size": group_size,
+            "Brightness_Min": brightness_min,
+            "Objective": "Q1"
+        })
+    
+    return pd.DataFrame(groups)

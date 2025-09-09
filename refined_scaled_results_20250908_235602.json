@@ -1,0 +1,206 @@
+{
+  "timestamp": "2025-09-08T23:51:49.755872",
+  "experiment_type": "refined_scaled_experiment",
+  "algorithms": [
+    "greedy",
+    "myopic_ilp",
+    "sketchrefine"
+  ],
+  "results": {
+    "48seats_12groups": {
+      "dataset_info": {
+        "n_seats": 48,
+        "n_groups": 12,
+        "total_experiment_time": 25550.53949356079,
+        "capacity_utilization": 0.5416666666666666,
+        "avg_group_size": 2.1666666666666665,
+        "brightness_range": [
+          55.90037823806556,
+          65.13489729249403
+        ]
+      },
+      "algorithms": {
+        "greedy": {
+          "success_rate": 0.0,
+          "runtime_ms": 0.0,
+          "cumulative_objective": 0.0,
+          "status": "unknown",
+          "success_count": 0,
+          "total_groups": 0
+        },
+        "myopic_ilp": {
+          "success_rate": 0.0,
+          "runtime_ms": 0.0,
+          "cumulative_objective": 0.0,
+          "status": "unknown",
+          "success_count": 0,
+          "total_groups": 0
+        },
+        "sketchrefine": {
+          "success_rate": 0.0,
+          "runtime_ms": 0.0,
+          "cumulative_objective": 0.0,
+          "status": "unknown",
+          "success_count": 0,
+          "total_groups": 0
+        }
+      }
+    },
+    "72seats_18groups": {
+      "dataset_info": {
+        "n_seats": 72,
+        "n_groups": 18,
+        "total_experiment_time": 21430.55486679077,
+        "capacity_utilization": 0.5416666666666666,
+        "avg_group_size": 2.1666666666666665,
+        "brightness_range": [
+          56.679488641626335,
+          66.39041578566824
+        ]
+      },
+      "algorithms": {
+        "greedy": {
+          "success_rate": 0.0,
+          "runtime_ms": 0.0,
+          "cumulative_objective": 0.0,
+          "status": "unknown",
+          "success_count": 0,
+          "total_groups": 0
+        },
+        "myopic_ilp": {
+          "success_rate": 0.0,
+          "runtime_ms": 0.0,
+          "cumulative_objective": 0.0,
+          "status": "unknown",
+          "success_count": 0,
+          "total_groups": 0
+        },
+        "sketchrefine": {
+          "success_rate": 0.0,
+          "runtime_ms": 0.0,
+          "cumulative_objective": 0.0,
+          "status": "unknown",
+          "success_count": 0,
+          "total_groups": 0
+        }
+      }
+    },
+    "96seats_24groups": {
+      "dataset_info": {
+        "n_seats": 96,
+        "n_groups": 24,
+        "total_experiment_time": 64778.96165847778,
+        "capacity_utilization": 0.5729166666666666,
+        "avg_group_size": 2.2916666666666665,
+        "brightness_range": [
+          57.89381604394568,
+          67.87849996465593
+        ]
+      },
+      "algorithms": {
+        "greedy": {
+          "success_rate": 0.0,
+          "runtime_ms": 0.0,
+          "cumulative_objective": 0.0,
+          "status": "unknown",
+          "success_count": 0,
+          "total_groups": 0
+        },
+        "myopic_ilp": {
+          "success_rate": 0.0,
+          "runtime_ms": 0.0,
+          "cumulative_objective": 0.0,
+          "status": "unknown",
+          "success_count": 0,
+          "total_groups": 0
+        },
+        "sketchrefine": {
+          "success_rate": 0.0,
+          "runtime_ms": 0.0,
+          "cumulative_objective": 0.0,
+          "status": "unknown",
+          "success_count": 0,
+          "total_groups": 0
+        }
+      }
+    },
+    "120seats_30groups": {
+      "dataset_info": {
+        "n_seats": 120,
+        "n_groups": 30,
+        "total_experiment_time": 56443.368673324585,
+        "capacity_utilization": 0.575,
+        "avg_group_size": 2.3,
+        "brightness_range": [
+          57.89381604394568,
+          68.11985159439172
+        ]
+      },
+      "algorithms": {
+        "greedy": {
+          "success_rate": 0.0,
+          "runtime_ms": 0.0,
+          "cumulative_objective": 0.0,
+          "status": "unknown",
+          "success_count": 0,
+          "total_groups": 0
+        },
+        "myopic_ilp": {
+          "success_rate": 0.0,
+          "runtime_ms": 0.0,
+          "cumulative_objective": 0.0,
+          "status": "unknown",
+          "success_count": 0,
+          "total_groups": 0
+        },
+        "sketchrefine": {
+          "success_rate": 0.0,
+          "runtime_ms": 0.0,
+          "cumulative_objective": 0.0,
+          "status": "unknown",
+          "success_count": 0,
+          "total_groups": 0
+        }
+      }
+    },
+    "144seats_36groups": {
+      "dataset_info": {
+        "n_seats": 144,
+        "n_groups": 36,
+        "total_experiment_time": 84673.57969284058,
+        "capacity_utilization": 0.5694444444444444,
+        "avg_group_size": 2.2777777777777777,
+        "brightness_range": [
+          57.89381604394568,
+          68.11985159439172
+        ]
+      },
+      "algorithms": {
+        "greedy": {
+          "success_rate": 0.0,
+          "runtime_ms": 0.0,
+          "cumulative_objective": 0.0,
+          "status": "unknown",
+          "success_count": 0,
+          "total_groups": 0
+        },
+        "myopic_ilp": {
+          "success_rate": 0.0,
+          "runtime_ms": 0.0,
+          "cumulative_objective": 0.0,
+          "status": "unknown",
+          "success_count": 0,
+          "total_groups": 0
+        },
+        "sketchrefine": {
+          "success_rate": 0.0,
+          "runtime_ms": 0.0,
+          "cumulative_objective": 0.0,
+          "status": "unknown",
+          "success_count": 0,
+          "total_groups": 0
+        }
+      }
+    }
+  }
+}

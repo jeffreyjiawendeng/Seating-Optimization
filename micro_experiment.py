@@ -1,53 +1,65 @@
-#!/usr/bin/env python3
+# micro_experiment.py
 """
-Micro experiment with an ultra-small dataset for rapid testing and debugging.
-This version uses the absolute minimum problem size to test algorithms quickly.
+Micro experiment to verify all three algorithms work.
 """
+
+from seating_opt.data_gen import generate_seats, generate_groups
+from seating_opt.greedy import greedy_pairwise  
+from seating_opt.ilp_solvers import solve_group_pair_ilp
+from seating_opt.sketchrefine import sketchrefine_solver
 import pandas as pd
 import time
-from seating_opt.data_gen import generate_seats, generate_groups_from_students
-from seating_opt.experiments import run_all
 
+# Create tiny dataset
+print("Creating dataset...")
+seats_df = generate_seats(rooms=1, tables_per_room=2, rows_per_table=2, cols_per_table=3, seed=42)
 
-def create_micro_dataset():
-    """Create an ultra-small dataset for rapid testing."""
-    # Tiny classroom: 1 table, 2 rows, 3 cols = 6 seats total
-    seats_df = generate_seats(
-        rooms=1, 
-        tables_per_room=1, 
-        rows_per_table=2, 
-        cols_per_table=3, 
-        table_gap=1, 
-        room_gap=8, 
-        seed=42
-    )
-    
-    # Very few students: 6 students in 2-3 groups
-    students_df, groups_df = generate_groups_from_students(
-        n_students=6, 
-        min_group=2, 
-        max_group=3, 
-        seed=123
-    )
-    
-    return seats_df, students_df, groups_df
+# Create one simple group
+groups_df = pd.DataFrame([{
+    "Group_ID": 1,
+    "Group_Size": 3,
+    "Brightness_Min": 40.0,  # Very achievable
+    "Objective": "Q1"
+}])
 
+print(f"Dataset: {len(seats_df)} seats, 1 group")
+print(f"Group: size={groups_df.iloc[0]['Group_Size']}, brightness≥{groups_df.iloc[0]['Brightness_Min']}")
 
-def run_micro_experiment():
-    """Run the micro experiment for rapid testing."""
-    print("=== MICRO SEATING OPTIMIZATION EXPERIMENT ===")
-    print("(Ultra-small dataset for rapid testing)")
-    print()
+# Test each algorithm
+algorithms = [
+    ("Greedy", greedy_pairwise),
+    ("ILP", solve_group_pair_ilp), 
+    ("SketchRefine", sketchrefine_solver)
+]
+
+group = groups_df.iloc[0]
+
+for name, solver in algorithms:
+    print(f"\nTesting {name}...")
+    start = time.time()
     
-    # Create micro dataset
-    print("Creating micro dataset...")
-    seats_df, students_df, groups_df = create_micro_dataset()
-    
-    print(f"Dataset created:")
-    print(f"  - Seats: {len(seats_df)}")
-    print(f"  - Students: {len(students_df)}")  
-    print(f"  - Groups: {len(groups_df)}")
-    print(f"  - Group sizes: {list(groups_df['Group_Size'])}")
+    try:
+        result = solver(
+            seats_df=seats_df.copy(),
+            group_size=int(group['Group_Size']),
+            brightness_min=float(group['Brightness_Min']),
+            lam_pair=0.3
+        )
+        
+        runtime = (time.time() - start) * 1000
+        
+        if result['status'] in ['ok', 'Optimal']:
+            seats = seats_df[seats_df['Seat_ID'].isin(result['seat_ids'])]
+            avg_brightness = seats['Brightness'].mean()
+            print(f"  ✅ SUCCESS: {len(result['seat_ids'])} seats, brightness={avg_brightness:.1f}, {runtime:.1f}ms")
+        else:
+            print(f"  ❌ FAILED: {result.get('status', 'Unknown')} in {runtime:.1f}ms")
+            
+    except Exception as e:
+        runtime = (time.time() - start) * 1000
+        print(f"  💥 ERROR: {str(e)} in {runtime:.1f}ms")
+
+print("\n🎉 Micro experiment completed!")
     print()
     
     # Show all data since it's tiny

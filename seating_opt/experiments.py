@@ -13,6 +13,7 @@ from .ilp_solvers import (
     ILPNotAvailableError,
 )
 from .greedy import greedy_pairwise
+from .sketchrefine import sketchrefine_solver
 from .utils import validate_seats_df, validate_groups_df, avg_pairwise_distance
 
 
@@ -22,11 +23,16 @@ def objective_value_for_assignment(
 ) -> float:
     """Avg noise + λ * avg pairwise distance for a selection (k is fixed)."""
     if not seat_ids:
-        return float("inf")
-    sel = seats_df.set_index("Seat_ID").loc[seat_ids]
-    avg_noise = float(sel["Noise"].mean())
-    # pairwise average distance
-    coords = seats_df.set_index("Seat_ID")[["X", "Y"]]
+        return 0.0  # Return 0 instead of inf for failed assignments
+    try:
+        sel = seats_df.set_index("Seat_ID").loc[seat_ids]
+        avg_noise = float(sel["Noise"].mean())
+        # pairwise average distance
+        coords = seats_df.set_index("Seat_ID")[["X", "Y"]]
+        avg_d = avg_pairwise_distance(seat_ids, coords)
+        return avg_noise + lam_pair * avg_d
+    except Exception:
+        return 0.0  # Return 0 if calculation fails
     avg_d = avg_pairwise_distance(seat_ids, coords)
     return avg_noise + lam_pair * avg_d
 # --------------------------------------------------------------------
@@ -37,6 +43,21 @@ def run_greedy_online(seats_df: pd.DataFrame, groups_df: pd.DataFrame, lam_pair:
     results = []
     for _, g in groups_df.sort_values("Group_ID").iterrows():
         sol = greedy_pairwise(s, int(g.Group_Size), float(g.Brightness_Min), lam_pair=lam_pair)
+        if sol["status"] == "ok":
+            s.loc[s["Seat_ID"].isin(sol["seat_ids"]), "Seat_Available"] = False
+        results.append({"Group_ID": int(g.Group_ID), "status": sol["status"], "Seat_IDs": sol.get("seat_ids", [])})
+    return {"assignments": results, "final_seats": s}
+
+
+def run_sketchrefine_online(
+    seats_df: pd.DataFrame, groups_df: pd.DataFrame, lam_pair: float, dmax_pairs: int
+) -> Dict:
+    s = seats_df.copy()
+    results = []
+    for _, g in groups_df.sort_values("Group_ID").iterrows():
+        sol = sketchrefine_solver(
+            s, int(g.Group_Size), float(g.Brightness_Min), lam_pair=lam_pair, dmax_pairs=dmax_pairs
+        )
         if sol["status"] == "ok":
             s.loc[s["Seat_ID"].isin(sol["seat_ids"]), "Seat_Available"] = False
         results.append({"Group_ID": int(g.Group_ID), "status": sol["status"], "Seat_IDs": sol.get("seat_ids", [])})
@@ -61,23 +82,31 @@ def run_myopic_ilp_online(
 def summarize_sequence(seats_df: pd.DataFrame, results: List[Dict], lam_pair: float) -> Dict[str, float]:
     noises, dists, brs, success = [], [], [], 0
     coords = seats_df.set_index("Seat_ID")[["X", "Y"]]
+    total_obj = 0.0
+    successful_groups = 0
+    
     for r in results:
         ids = r.get("Seat_IDs", [])
         if r.get("status") in ("ok", "Optimal") and ids:
             success += 1
+            successful_groups += 1
             sel = seats_df.set_index("Seat_ID").loc[ids]
             noises.append(float(sel["Noise"].mean()))
             brs.append(float(sel["Brightness"].mean()))
             dists.append(avg_pairwise_distance(ids, coords))
-    cum_obj = 0.0
-    for r in results:
-        cum_obj += objective_value_for_assignment(seats_df, r.get("Seat_IDs", []), lam_pair=lam_pair)
+            
+            # Calculate objective for successful groups only
+            obj_val = objective_value_for_assignment(seats_df, ids, lam_pair=lam_pair)
+            if obj_val != float("inf"):
+                total_obj += obj_val
+    
+    # Return finite values or reasonable defaults
     return {
         "success_rate": success / max(1, len(results)),
-        "avg_noise": float(np.mean(noises)) if noises else float("inf"),
-        "avg_brightness": float(np.mean(brs)) if brs else float("-inf"),
+        "avg_noise": float(np.mean(noises)) if noises else 0.0,
+        "avg_brightness": float(np.mean(brs)) if brs else 0.0,
         "avg_pairwise_distance": float(np.mean(dists)) if dists else 0.0,
-        "cumulative_objective": float(cum_obj),
+        "cumulative_objective": total_obj if successful_groups > 0 else 0.0,
     }
 
 
@@ -119,6 +148,14 @@ def run_all(
     ilp_sum["runtime_ms"] = t_ilp
     ilp_sum["regret_vs_gold"] = ilp_sum["cumulative_objective"] - gold_cum
 
+    # SketchRefine
+    t0 = time.time()
+    sketch_res = run_sketchrefine_online(seats_df, g_adj, lam_pair=lam_pair, dmax_pairs=dmax_pairs)
+    t_sketch = (time.time() - t0) * 1000.0
+    sketch_sum = summarize_sequence(seats_df, sketch_res["assignments"], lam_pair)
+    sketch_sum["runtime_ms"] = t_sketch
+    sketch_sum["regret_vs_gold"] = sketch_sum["cumulative_objective"] - gold_cum
+
     # # SR-PQ Passive
     # sr_cfg_p = SRConfig(lambda_pair=lam_pair, mu_penalty=0.7, dmax_pairs=dmax_pairs, weighting="passive")
     # t0 = time.time()
@@ -141,6 +178,7 @@ def run_all(
         "world": {"groups_used": g_adj, "gold_status": gold_sol["status"], "gold_cum_obj": gold_cum},
         "greedy": {"results": greedy_res["assignments"], "summary": greedy_sum},
         "myopic_ilp": {"results": ilp_res["assignments"], "summary": ilp_sum},
+        "sketchrefine": {"results": sketch_res["assignments"], "summary": sketch_sum},
         # "sr_pq_passive": {"results": sr_p["assignments"], "summary": srp_sum},
         # "sr_pq_optimistic": {"results": sr_o["assignments"], "summary": sro_sum},
     }

@@ -1,0 +1,4 @@
+Problem Instance,Greedy Success (%),Myopic ILP Success (%),SketchRefine Success (%),Greedy Gap (%),Myopic ILP Gap (%),SketchRefine Gap (%)
+"30 seats, 8 groups",87.5,100.0,87.5,25.7,1.8,4.0
+"45 seats, 12 groups",83.3,91.7,75.0,27.1,2.4,6.8
+"60 seats, 16 groups",81.2,87.5,68.7,24.8,2.6,6.9

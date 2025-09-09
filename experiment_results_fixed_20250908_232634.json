@@ -1,0 +1,203 @@
+{
+  "timestamp": "2025-09-08T23:26:34.971218",
+  "experiment_type": "fixed_scalability_comparison",
+  "algorithms": [
+    "greedy",
+    "myopic_ilp",
+    "sketchrefine"
+  ],
+  "results": {
+    "30seats_8groups": {
+      "dataset_info": {
+        "n_seats": 30,
+        "n_groups": 8,
+        "total_experiment_time": 3131.108045578003,
+        "brightness_range": [
+          20.19809209268365,
+          82.63535090392182
+        ],
+        "group_requirements": [
+          25.69632076208094,
+          38.9709357848369
+        ]
+      },
+      "algorithms": {
+        "greedy": {
+          "success_rate": 1.0,
+          "avg_noise": 26.962853203776803,
+          "avg_brightness": 55.992209959418574,
+          "avg_pairwise_distance": 4.083333333333333,
+          "cumulative_objective": 225.50282563021443,
+          "runtime_ms": 130.7535171508789,
+          "regret_vs_gold": -13.063728587781696
+        },
+        "myopic_ilp": {
+          "success_rate": 1.0,
+          "avg_noise": 26.952275621073042,
+          "avg_brightness": 58.52525823910916,
+          "avg_pairwise_distance": 6.666666666666666,
+          "cumulative_objective": 231.61820496858434,
+          "runtime_ms": 1150.9230136871338,
+          "regret_vs_gold": -6.948349249411791
+        },
+        "sketchrefine": {
+          "success_rate": 0.625,
+          "avg_noise": 25.13791605182679,
+          "avg_brightness": 66.59823330120432,
+          "avg_pairwise_distance": 1.7333333333333332,
+          "cumulative_objective": 128.28958025913394,
+          "runtime_ms": 578.0720710754395,
+          "regret_vs_gold": -110.27697395886219
+        }
+      },
+      "gold_standard": {
+        "status": "Optimal",
+        "cumulative_objective": 238.56655421799613
+      }
+    },
+    "60seats_15groups": {
+      "dataset_info": {
+        "n_seats": 60,
+        "n_groups": 15,
+        "total_experiment_time": 11520.659446716309,
+        "brightness_range": [
+          14.937996698125911,
+          82.63535090392182
+        ],
+        "group_requirements": [
+          20.518280561545016,
+          36.80270491932734
+        ]
+      },
+      "algorithms": {
+        "greedy": {
+          "success_rate": 1.0,
+          "avg_noise": 27.80305415221724,
+          "avg_brightness": 53.28010841316187,
+          "avg_pairwise_distance": 4.222222222222222,
+          "cumulative_objective": 436.04581228325867,
+          "runtime_ms": 425.7485866546631,
+          "regret_vs_gold": -25.171835634823026
+        },
+        "myopic_ilp": {
+          "success_rate": 1.0,
+          "avg_noise": 27.788471535372228,
+          "avg_brightness": 51.66662439711248,
+          "avg_pairwise_distance": 11.02222222222222,
+          "cumulative_objective": 466.4270730305834,
+          "runtime_ms": 3417.2871112823486,
+          "regret_vs_gold": 5.2094251125017195
+        },
+        "sketchrefine": {
+          "success_rate": 0.8,
+          "avg_noise": 26.640336743020317,
+          "avg_brightness": 53.848824233580636,
+          "avg_pairwise_distance": 2.194444444444444,
+          "cumulative_objective": 327.5840409162439,
+          "runtime_ms": 1162.700891494751,
+          "regret_vs_gold": -133.6336070018378
+        }
+      },
+      "gold_standard": {
+        "status": "Optimal",
+        "cumulative_objective": 461.2176479180817
+      }
+    },
+    "100seats_25groups": {
+      "dataset_info": {
+        "n_seats": 100,
+        "n_groups": 25,
+        "total_experiment_time": 46176.18441581726,
+        "brightness_range": [
+          14.937996698125911,
+          86.38540919730549
+        ],
+        "group_requirements": [
+          20.51950764636909,
+          39.24747676487382
+        ]
+      },
+      "algorithms": {
+        "greedy": {
+          "success_rate": 1.0,
+          "avg_noise": 28.750542216181657,
+          "avg_brightness": 55.458154043996984,
+          "avg_pairwise_distance": 4.32,
+          "cumulative_objective": 751.1635554045415,
+          "runtime_ms": 822.1805095672607,
+          "regret_vs_gold": -74.51136399075938
+        },
+        "myopic_ilp": {
+          "success_rate": 1.0,
+          "avg_noise": 28.727995051120274,
+          "avg_brightness": 55.01733371880966,
+          "avg_pairwise_distance": 14.506666666666668,
+          "cumulative_objective": 826.9998762780067,
+          "runtime_ms": 25831.896781921387,
+          "regret_vs_gold": 1.3249568827058056
+        },
+        "sketchrefine": {
+          "success_rate": 0.96,
+          "avg_noise": 28.555286056583157,
+          "avg_brightness": 56.03243916827688,
+          "avg_pairwise_distance": 3.0486111111111107,
+          "cumulative_objective": 707.276865357996,
+          "runtime_ms": 7727.605581283569,
+          "regret_vs_gold": -118.39805403730486
+        }
+      },
+      "gold_standard": {
+        "status": "Optimal",
+        "cumulative_objective": 825.6749193953009
+      }
+    },
+    "150seats_35groups": {
+      "dataset_info": {
+        "n_seats": 150,
+        "n_groups": 35,
+        "total_experiment_time": 547182.17420578,
+        "brightness_range": [
+          13.558132910784035,
+          88.71520150772122
+        ],
+        "group_requirements": [
+          19.17899945155346,
+          39.17444310978725
+        ]
+      },
+      "algorithms": {
+        "greedy": {
+          "success_rate": 1.0,
+          "avg_noise": 27.085528857522196,
+          "avg_brightness": 54.62977624392695,
+          "avg_pairwise_distance": 3.6714285714285713,
+          "cumulative_objective": 986.5435100132765,
+          "runtime_ms": 1984.2140674591064,
+          "regret_vs_gold": 986.5435100132765
+        },
+        "myopic_ilp": {
+          "success_rate": 1.0,
+          "avg_noise": 27.097905221590235,
+          "avg_brightness": 53.787690220594875,
+          "avg_pairwise_distance": 16.809523809523807,
+          "cumulative_objective": 1124.9266827556578,
+          "runtime_ms": 44360.71014404297,
+          "regret_vs_gold": 1124.9266827556578
+        },
+        "sketchrefine": {
+          "success_rate": 1.0,
+          "avg_noise": 27.092629072971356,
+          "avg_brightness": 55.767433468727845,
+          "avg_pairwise_distance": 3.733333333333334,
+          "cumulative_objective": 987.4420175539976,
+          "runtime_ms": 11155.138492584229,
+          "regret_vs_gold": 987.4420175539976
+        }
+      },
+      "gold_standard": {
+        "status": "Not Solved",
+        "cumulative_objective": 0.0
+      }
+    }
+  }
+}
