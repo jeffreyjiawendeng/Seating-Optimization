@@ -1,4 +1,14 @@
 # demo_main.py
+# 
+# WARNING: This demo uses a large dataset (168 seats, ~32 groups) that causes
+# the ILP solver to time out due to problem complexity. 
+# 
+# For working examples, use the toy datasets instead:
+#   python toy_experiment.py      # Small realistic dataset (24 seats, 5 groups)
+#   python micro_experiment.py    # Ultra-small dataset (6 seats, 3 groups)
+#
+# See EXPERIMENTAL_README.md for details.
+#
 import pandas as pd
 from seating_opt.data_gen import generate_seats, generate_groups_from_students
 from seating_opt.experiments import run_all
