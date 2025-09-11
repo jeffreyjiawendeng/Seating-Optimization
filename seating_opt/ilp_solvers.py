@@ -118,8 +118,12 @@ def solve_global_pair_ilp(
     G = list(groups["Group_ID"].astype(int))
 
     # Heuristic bound: keep small for tractability
-    if len(seat_ids) * len(G) > 25000:
+    # Allow larger problems but warn about computational complexity
+    problem_size = len(seat_ids) * len(G)
+    if problem_size > 100000:  # Increased from 25000 to 100000
         raise ValueError("Global ILP too large; reduce problem size.")
+    elif problem_size > 50000:
+        print(f"Warning: Large Global ILP problem (size={problem_size}). This may take a long time.")
 
     b_map = cand.set_index("Seat_ID")["Brightness"].astype(float).to_dict()
     n_map = cand.set_index("Seat_ID")["Noise"].astype(float).to_dict()
@@ -159,13 +163,17 @@ def solve_global_pair_ilp(
 
     status = pl.LpStatus[m.status]
     assign = {g: [] for g in G}
+    objective_value = None
+    
     if status == "Optimal":
+        objective_value = pl.value(m.objective)
         for g in G:
             for i in seat_ids:
                 v = x[(i, g)].value()
                 if v and v > 0.5:
                     assign[g].append(i)
-    return {"status": status, "assignments": assign, "model": m}
+    
+    return {"status": status, "assignments": assign, "objective": objective_value, "model": m}
 # ---------------------------------------------------------------------
 
 
